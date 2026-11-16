@@ -2,17 +2,18 @@
 
 A personal web app for going from **B2 to C1 in Brazilian Portuguese in 60 days**. It covers the parts that textbooks skip: how Brazilians actually talk (*não dá*, *dá pra*, *cair a ficha*, *deu ruim*), idioms and metaphors, word building, and the grammar that separates B2 from C1.
 
-No build step, no framework, no server. Three files: `index.html`, `data.js` and `app.js`.
+No build step, no framework, no server. Four files: `index.html`, `data.js`, `lessons.js` and `app.js`.
 
 ## What's inside
 
 | Section | What it does |
 |---|---|
 | **Hoje** | Daily plan (cards, 15 drills, 1 text, 1 conversation), streak, 60-day heatmap, weak spots, week-by-week roadmap |
-| **Cartões** | 282 flashcards with spaced repetition, in 6 decks: *Dar, ficar, rolar & cia* · *Gírias* · *Expressões & metáforas* · *Vocabulário C1 formal* · *Conectores* · *Falsos amigos (espanhol)*. Each card has a register tag (gíria / informal / neutro / formal), a real example and a usage note. Includes audio and an AI button for more examples and nuance |
+| **Cartões** | 322 flashcards with spaced repetition, in 7 decks: *Dar, ficar, rolar & cia* · *Gírias* · *Expressões & metáforas* · *Vocabulário C1 formal* · *Acadêmico & argumentação* (with Spanish equivalents: resaltar → ressaltar, hacer hincapié en → dar ênfase a) · *Conectores* · *Falsos amigos (espanhol)*. Each card has a register tag (gíria / informal / neutro / formal), a real example and a usage note. Includes audio and an AI button for more examples and nuance |
 | **Importar** | Paste a **Language Reactor** export, YouTube subtitles, an article or a word list, and the AI turns the best B2→C1 items into cards. Export everything to Anki as TSV |
-| **Gramática** | 134 exercises in 12 topics: future subjunctive, hypotheses, present subjunctive, personal infinitive, perfeito composto, mais-que-perfeito, perfeito × imperfeito, regência, crase, pronoun placement (speech vs. writing), word formation, informal → formal. The AI generates new exercises on demand |
-| **Tutor IA** | *Escrever:* 12 writing tasks in the style of CELPE-Bras (formal email, WhatsApp, opinion article…), corrected with an estimated CEFR level, error list, corrected text and a C1 rewrite. *Conversar:* 8 role-plays (boteco in Rio, WhatsApp in São Paulo, job interview, call center, debate, landlord in BH, doctor, free chat) with voice and a correction report at the end |
+| **Gramática** | A Lingolia-style **lesson** for each of the 12 topics (rules, conjugation tables, differences from Spanish, common mistakes), plus 134 exercises: future subjunctive, hypotheses, present subjunctive, personal infinitive, perfeito composto, mais-que-perfeito, perfeito × imperfeito, regência, crase, pronoun placement (speech vs. writing), word formation, informal → formal. The AI generates new exercises on demand |
+| **Dicionário** | Context dictionary in the style of Reverso: type a word in Portuguese, Spanish or English and get the Brazilian meaning, 8 real examples in different registers, collocations, synonyms, and more formal and more informal options. Save to your cards in one click |
+| **Tutor IA** | *Escrever:* 12 writing tasks in the style of CELPE-Bras (formal email, WhatsApp, opinion article…), corrected with an estimated CEFR level, error list, corrected text and a C1 rewrite. *Conversar:* 8 role-plays (boteco in Rio, WhatsApp in São Paulo, job interview, call center, debate, landlord in BH, doctor, free chat) with voice and a correction report at the end. Optional correction after every message. *Desafio do dia:* a daily debate where you must use 4 target expressions and one grammar point, with a check of which ones you used |
 | **Meus erros** | Every mistake the tutor finds is saved, grouped by type, and turned into exercises until you get it right twice |
 
 ## Run it
@@ -72,6 +73,7 @@ Card IDs come from the Portuguese text, so editing the `pt` field resets that ca
 ```
 index.html   layout and styles (light and dark themes)
 data.js      all decks, exercises, writing tasks and conversation scenarios
+lessons.js   the 12 grammar lessons
 app.js       spaced repetition, drills, AI tutor, voice, storage
 ```
 

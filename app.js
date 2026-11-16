@@ -57,7 +57,7 @@
   /* ---------------------------------------------------------------- state */
   const DEFAULT = () => ({
     v: 1, updatedAt: 0, start: dateStr(), newPerDay: 15, lang: "en", dir: "pt", autoSpeak: true,
-    decksOff: [], srs: {}, custom: [], drillStats: {}, aiDrills: {}, days: {}, errors: [],
+    decksOff: [], srs: {}, custom: [], drillStats: {}, aiDrills: {}, days: {}, errors: [], lookups: [], dict: {}, chatCorrect: false, challenge: null,
   });
   let S = DEFAULT();
   const today = () => { const k = dateStr(); return S.days[k] || (S.days[k] = { r: 0, n: 0, d: 0, dk: 0, t: 0, c: 0 }); };
@@ -125,7 +125,7 @@
     if (!pt || !en) return false;
     let id = "meus:" + slug(pt);
     if (BY_ID[id]) return false;
-    S.custom.push({ id, pt, en, ex: card.ex || "", exEn: card.exEn || "", reg: ["gíria", "informal", "neutro", "formal"].includes(card.reg) ? card.reg : "neutro", note: card.note || "", src: card.src || "" });
+    S.custom.push({ id, pt, en, ex: card.ex || "", exEn: card.exEn || "", reg: ["gíria", "informal", "neutro", "formal"].includes(card.reg) ? card.reg : "neutro", note: card.note || "", esEq: card.esEq || "", src: card.src || "" });
     buildCards(); save();
     return true;
   }
@@ -296,7 +296,7 @@
 
   /* ---------------------------------------------------------------- routing */
   let currentView = "hoje";
-  const VIEWS = { hoje: viewToday, cartoes: viewCards, gramatica: viewDrills, tutor: viewTutor, erros: viewErrors };
+  const VIEWS = { hoje: viewToday, cartoes: viewCards, gramatica: viewDrills, dicionario: viewDict, tutor: viewTutor, erros: viewErrors };
   function route() {
     const name = (location.hash || "#hoje").slice(1);
     currentView = VIEWS[name] ? name : "hoje";
@@ -339,7 +339,7 @@
       { done: due + fresh === 0 && t.r > 0, label: "Revisar os cartões do dia", detail: `${t.r} revisados · ${due + fresh} restantes`, view: "cartoes", p: pct(t.r, t.r + due + fresh) },
       { done: t.d >= 15, label: "15 exercícios de gramática", detail: `${t.d}/15`, view: "gramatica", p: pct(Math.min(t.d, 15), 15) },
       { done: t.t >= 1, label: "Escrever 1 texto e corrigir com a IA", detail: `${t.t}/1`, view: "tutor", p: t.t ? 100 : 0 },
-      { done: t.c >= 1, label: "1 conversa com o tutor", detail: `${t.c}/1`, view: "tutor", p: t.c ? 100 : 0 },
+      { done: t.c >= 1, label: "1 conversa (o Desafio do dia conta)", detail: `${t.c}/1`, view: "tutor", p: t.c ? 100 : 0 },
     ];
     const next = goals.find((g) => !g.done);
 
@@ -473,7 +473,8 @@
       R.dir === "pt" ? h("div", { class: "answer" }, c.en) : h("div", { class: "row", style: "flex-wrap:nowrap" }, h("div", { class: "front" }, c.pt), speakBtn(c.pt)),
       c.ex ? h("div", { class: "example" }, h("div", { class: "row", style: "flex-wrap:nowrap;justify-content:space-between" }, h("span", { class: "pt" }, c.ex), speakBtn(c.ex, "Ouvir o exemplo")), h("span", { class: "muted small" }, c.exEn)) : null,
       c.note ? h("p", { class: "note" }, c.note) : null,
-      c.es ? h("p", { class: "es" }, h("b", null, "Em espanhol: "), c.es) : null,
+      c.es ? h("p", { class: "es" }, h("b", null, "Falso amigo em espanhol: "), c.es) : null,
+      c.esEq ? h("p", { class: "es-eq" }, h("b", null, "Em espanhol: "), c.esEq) : null,
       R.explain ? h("div", { class: "ai-out" }, R.explain) : null,
       h("div", { class: "row" }, h("button", { class: "btn sm ghost", type: "button", disabled: R.explaining, onclick: () => explainCard(c) }, R.explaining ? h("span", { class: "spinner" }) : null, R.explain ? "Explicar de novo" : "Mais exemplos e nuances (IA)")),
     ) : null;
@@ -513,10 +514,10 @@ Keep it under 190 words.`;
     const sel = h("select", { id: "explore-deck", "aria-label": "Baralho" }, h("option", { value: "all" }, "Todos os baralhos"), DECKS.map((d) => h("option", { value: d.id, selected: exploreDeck === d.id }, d.name)));
     const draw = () => {
       const q = deaccent(exploreQ);
-      const rows = CARDS.filter((c) => (exploreDeck === "all" || c.deck === exploreDeck) && (!q || deaccent(c.pt + " " + c.en + " " + (c.ex || "")).includes(q)));
+      const rows = CARDS.filter((c) => (exploreDeck === "all" || c.deck === exploreDeck) && (!q || deaccent([c.pt, c.en, c.ex, c.esEq, c.es].filter(Boolean).join(" ")).includes(q)));
       listEl.replaceChildren(...rows.slice(0, 150).map((c) => h("div", { class: "item" },
         h("span", { class: "t" }, c.pt, " ", h("span", { class: "reg reg-" + c.reg }, c.reg)),
-        h("span", { class: "d" }, c.en, c.ex ? h("span", { style: "display:block;font-style:italic" }, c.ex) : null),
+        h("span", { class: "d" }, c.en, c.esEq ? ` · ES: ${c.esEq}` : "", c.ex ? h("span", { style: "display:block;font-style:italic" }, c.ex) : null),
         h("span", { class: "side" }, h("span", { class: "tag" }, statusOf(c)), speakBtn(c.pt),
           c.deck === "meus" ? h("button", { class: "btn sm ghost", type: "button", "aria-label": "Apagar cartão", onclick: () => { S.custom = S.custom.filter((x) => x.id !== c.id); delete S.srs[c.id]; buildCards(); save(); draw(); } }, "Apagar") : null),
       )));
@@ -594,7 +595,8 @@ ${importText.slice(0, 18000)}
   }
 
   /* ================================================================ GRAMÁTICA */
-  const G = { topic: null, items: [], i: 0, input: "", result: null, picked: null, ok: 0, busy: false };
+  const G = { topic: null, lesson: null, items: [], i: 0, input: "", result: null, picked: null, ok: 0, busy: false };
+  const LESSONS = window.PT_LESSONS || {};
   const topicName = (id) => id === "erros" ? "Meus erros" : id === "mix" ? "Treino misto" : (D.drillTopics.find((t) => t.id === id) || {}).name || id;
 
   function itemsFor(topic) {
@@ -606,7 +608,7 @@ ${importText.slice(0, 18000)}
     }
     return shuffle([...D.drills.filter((d) => d.t === topic), ...(S.aiDrills[topic] || [])]).slice(0, 10);
   }
-  function startDrill(topic) { Object.assign(G, { topic, items: itemsFor(topic), i: 0, input: "", result: null, picked: null, ok: 0, busy: false }); route(); }
+  function startDrill(topic) { Object.assign(G, { topic, lesson: null, items: itemsFor(topic), i: 0, input: "", result: null, picked: null, ok: 0, busy: false }); route(); }
   function checkAnswer(item, input) {
     if (item.opts) return input === item.a ? "ok" : "no";
     const answers = item.a.map(String);
@@ -666,22 +668,26 @@ Return ONLY JSON: {"items":[{"q":"…","a":["…"],"x":"…"}]}`;
   }
 
   function viewDrills() {
+    if (G.lesson) return viewLesson(G.lesson);
     if (!G.topic) {
       const groups = {};
       for (const tp of D.drillTopics) (groups[tp.group] ||= []).push(tp);
-      const topicBtn = (id, name, tip, extra) => {
+      const topicBtn = (id, name, tip) => {
         const st = S.drillStats[id];
-        const n = id === "erros" ? S.errors.filter((e) => (e.fixed || 0) < 2).length : D.drills.filter((d) => d.t === id).length + (S.aiDrills[id] || []).length;
-        return h("button", { class: "topic", type: "button", onclick: () => startDrill(id), title: tip || "" },
+        const n = D.drills.filter((d) => d.t === id).length + (S.aiDrills[id] || []).length;
+        return h("div", { class: "topic", title: tip || "" },
           h("span", { class: "name" }, name),
-          h("span", { class: "small muted" }, extra || (st ? `${pct(st.ok, st.n)}% de acertos · ${st.n} feitos` : `${n} exercícios`)),
-          h("div", { class: "bar" }, h("i", { style: `width:${st ? pct(st.ok, st.n) : 0}%` })));
+          h("span", { class: "small muted" }, st ? `${pct(st.ok, st.n)}% de acertos · ${st.n} feitos` : `${n} exercícios`),
+          h("div", { class: "bar" }, h("i", { style: `width:${st ? pct(st.ok, st.n) : 0}%` })),
+          h("div", { class: "row" },
+            LESSONS[id] ? h("button", { class: "btn sm", type: "button", onclick: () => { G.lesson = id; route(); window.scrollTo(0, 0); } }, "Lição") : null,
+            h("button", { class: "btn sm primary", type: "button", onclick: () => startDrill(id) }, "Praticar")));
       };
       const pending = S.errors.filter((e) => (e.fixed || 0) < 2).length;
       return [
         h("section", { class: "panel" },
           h("div", { class: "panel-head" }, h("h2", null, "Gramática"), h("span", { class: "small muted num" }, `Hoje: ${today().d} exercícios, ${pct(today().dk, today().d)}% certos`)),
-          h("p", null, "Sessions of 10. Type the missing word, check, read the explanation. Each topic can generate fresh exercises with the AI, so you never just memorize the answers."),
+          h("p", null, "Each topic has a lesson (rules, tables, the differences from Spanish, common mistakes) and sessions of 10 exercises. The AI can generate fresh exercises, so you never just memorize the answers."),
           h("div", { class: "row" }, h("button", { class: "btn primary", type: "button", onclick: () => startDrill("mix") }, "Treino misto (foco nos pontos fracos)"), pending ? h("button", { class: "btn", type: "button", onclick: () => startDrill("erros") }, `Praticar meus erros (${pending})`) : null)),
         h("div", { class: "topic-groups" }, Object.entries(groups).map(([g, tps]) => h("section", { style: "display:grid;gap:10px" }, h("h3", null, g), h("div", { class: "topics" }, tps.map((tp) => topicBtn(tp.id, tp.name, tp.tip)))))),
       ];
@@ -692,6 +698,7 @@ Return ONLY JSON: {"items":[{"q":"…","a":["…"],"x":"…"}]}`;
     const head = h("div", { class: "panel-head" },
       h("div", { style: "display:grid;gap:4px" }, h("h2", null, topicName(G.topic)), tp ? h("p", { class: "small muted", style: "max-width:65ch" }, tp.tip) : null),
       h("div", { class: "row" },
+        LESSONS[G.topic] ? h("button", { class: "btn sm ghost", type: "button", onclick: () => { G.lesson = G.topic; route(); window.scrollTo(0, 0); } }, "Ver a lição") : null,
         tp ? h("button", { class: "btn sm", type: "button", disabled: G.busy, onclick: () => genDrills(G.topic) }, G.busy ? [h("span", { class: "spinner" }), " Gerando…"] : "+ 6 novos com IA") : null,
         h("button", { class: "btn sm ghost", type: "button", onclick: () => { G.topic = null; route(); } }, "Sair")));
 
@@ -732,6 +739,108 @@ Return ONLY JSON: {"items":[{"q":"…","a":["…"],"x":"…"}]}`;
       answerArea, fb, next);
   }
 
+
+  function viewLesson(id) {
+    const L0 = LESSONS[id]; if (!L0) { G.lesson = null; return viewDrills(); }
+    const inDrill = G.topic === id && G.items.length && G.i < G.items.length;
+    const back = () => { G.lesson = null; route(); window.scrollTo(0, 0); };
+    const block = (b) => {
+      const out = [];
+      if (b.h) out.push(h("h3", null, b.h));
+      if (b.p) out.push(h("p", { class: "lesson-p" }, b.p));
+      if (b.list) out.push(h("ul", { class: "lesson-list" }, b.list.map((x) => h("li", null, x))));
+      if (b.table) out.push(h("div", { class: "tablewrap" }, h("table", null,
+        h("thead", null, h("tr", null, b.table.head.map((c) => h("th", { scope: "col" }, c)))),
+        h("tbody", null, b.table.rows.map((r) => h("tr", null, r.map((c, i) => h(i === 0 ? "th" : "td", i === 0 ? { scope: "row" } : null, c))))))));
+      if (b.ex) out.push(h("div", { style: "display:grid;gap:8px" }, b.ex.map(([pt, en]) => h("div", { class: "example" },
+        h("div", { class: "row", style: "flex-wrap:nowrap;justify-content:space-between" }, h("span", { class: "pt" }, pt), speakBtn(pt, "Ouvir")), h("span", { class: "muted small" }, en)))));
+      return out;
+    };
+    return h("article", { class: "panel lesson" },
+      h("div", { class: "panel-head" }, h("div", { style: "display:grid;gap:4px" }, h("span", { class: "small muted" }, "Lição de gramática"), h("h2", null, L0.title)),
+        h("div", { class: "row" }, h("button", { class: "btn sm ghost", type: "button", onclick: back }, inDrill ? "Voltar aos exercícios" : "Voltar"))),
+      h("p", { class: "lesson-intro" }, L0.intro),
+      L0.blocks.map(block),
+      L0.mistakes && L0.mistakes.length ? [h("h3", null, "Erros comuns"), h("div", { style: "display:grid;gap:8px" }, L0.mistakes.map(([wrong, right, why]) => h("div", { class: "err" },
+        h("div", { class: "fix" }, h("s", null, wrong), h("span", { "aria-hidden": "true" }, "→"), h("span", { class: "ok" }, right)), why ? h("p", { class: "small" }, why) : null)))] : null,
+      L0.tip ? h("div", { class: "notice" }, h("b", null, "Dica: "), L0.tip) : null,
+      h("div", { class: "row" }, h("button", { class: "btn primary", type: "button", onclick: () => { startDrill(id); window.scrollTo(0, 0); } }, "Praticar agora (10 exercícios)"), h("button", { class: "btn", type: "button", onclick: back }, inDrill ? "Voltar aos exercícios" : "Ver todos os temas")));
+  }
+
+
+  /* ================================================================ DICIONÁRIO */
+  const DIC = { q: "", busy: false, result: null };
+  const arr = (x) => (Array.isArray(x) ? x : x ? [x] : []);
+  async function lookup(q) {
+    q = String(q || "").trim(); if (!q) return;
+    DIC.q = q; const key = norm(q);
+    S.lookups = [q, ...(S.lookups || []).filter((x) => norm(x) !== key)].slice(0, 20);
+    const keep = new Set(S.lookups.map(norm));
+    for (const k of Object.keys(S.dict || {})) if (!keep.has(k)) delete S.dict[k];
+    if (S.dict[key]) { DIC.result = S.dict[key]; save(); route(); return; }
+    if (!AI.available()) { DIC.result = null; save(); route(); toast(AI.explainError({ code: "no_ai" })); return; }
+    DIC.busy = true; DIC.result = null; route();
+    const prompt = `You are a bilingual dictionary of Brazilian Portuguese in the style of Reverso Context, for a learner going from B2 to C1 who also speaks Spanish fluently.
+Query: "${q.slice(0, 120)}"
+If the query is in Portuguese, describe it. If it is in Spanish or English, find the best Brazilian Portuguese equivalent and describe that (explain the mapping in "nota").
+Return ONLY JSON:
+{"pt":"headword in Brazilian Portuguese, dictionary form","classe":"verbo|substantivo|adjetivo|advérbio|expressão|conector|preposição…","reg":"gíria|informal|neutro|formal","sentidos":[{"en":"meaning in English","es":"closest Spanish equivalent"}],"exemplos":[{"pt":"natural sentence in Brazilian Portuguese","en":"English translation","reg":"gíria|informal|neutro|formal"}],"colocacoes":["frequent combinations, e.g. 'tomar uma decisão'"],"sinonimos":[{"pt":"…","reg":"…"}],"mais_formal":["more academic or formal alternatives"],"mais_informal":["more colloquial Brazilian alternatives"],"cuidado":"a typical mistake or false friend for Spanish speakers, in ${L()} (or empty)","nota":"one short usage note in ${L()} (or empty)"}
+Rules: 1–3 sentidos. Exactly 8 exemplos from realistic Brazilian contexts (WhatsApp, work email, news, conversation, academic text), covering every sentido and several registers. 4–8 colocacoes, 3–6 sinonimos, 0–4 items in mais_formal and mais_informal. Brazilian usage only, not European.`;
+    try {
+      const r = await AI.json(prompt);
+      if (!r || !r.pt) throw { code: "bad_json" };
+      const clean = { pt: String(r.pt), classe: String(r.classe || ""), reg: ["gíria", "informal", "neutro", "formal"].includes(r.reg) ? r.reg : "neutro",
+        sentidos: arr(r.sentidos).filter((x) => x && x.en).slice(0, 4), exemplos: arr(r.exemplos).filter((x) => x && x.pt).slice(0, 10),
+        colocacoes: arr(r.colocacoes).map(String).slice(0, 10), sinonimos: arr(r.sinonimos).map((x) => (typeof x === "string" ? { pt: x } : x)).filter((x) => x && x.pt).slice(0, 8),
+        mais_formal: arr(r.mais_formal).map(String).slice(0, 5), mais_informal: arr(r.mais_informal).map(String).slice(0, 5), cuidado: String(r.cuidado || ""), nota: String(r.nota || "") };
+      DIC.result = clean; S.dict[key] = clean; save();
+    } catch (e) { toast(AI.explainError(e)); }
+    DIC.busy = false; if (currentView === "dicionario") route();
+  }
+  function saveFromDict(r, ex) {
+    const card = { pt: r.pt, en: r.sentidos.slice(0, 2).map((s) => s.en).join("; ") || r.pt, ex: ex ? ex.pt : (r.exemplos[0] || {}).pt || "", exEn: ex ? ex.en : (r.exemplos[0] || {}).en || "",
+      reg: r.reg, esEq: r.sentidos.map((s) => s.es).filter(Boolean).slice(0, 2).join("; "), note: [r.nota, r.cuidado].filter(Boolean).join(" "), src: "dicionário" };
+    if (addCustom(card)) toast(`"${r.pt}" foi para Meus cartões.`); else toast("This expression is already in your cards.");
+  }
+  function viewDict() {
+    const input = h("input", { type: "search", id: "dict-q", placeholder: "ex.: dar conta, ressaltar, hacer hincapié en, to cope with…", value: DIC.q, "aria-label": "Palavra ou expressão", autocomplete: "off" });
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); lookup(input.value); } });
+    setTimeout(() => { if (!DIC.result && !DIC.busy) input.focus(); }, 0);
+    const q = deaccent(DIC.q);
+    const local = q ? CARDS.filter((c) => deaccent([c.pt, c.en, c.esEq, c.es].filter(Boolean).join(" ")).includes(q)).slice(0, 6) : [];
+    const chip = (text, extra) => h("button", { class: "deckchip", type: "button", onclick: () => lookup(text) }, text, extra ? h("span", { class: "n" }, extra) : null);
+    const r = DIC.result;
+    const search = h("section", { class: "panel" },
+      h("div", { class: "panel-head" }, h("h2", null, "Dicionário em contexto"), h("span", { class: "small muted" }, "Como o Reverso, com IA")),
+      h("p", { class: "small" }, "Type a word or expression in Portuguese, or in Spanish or English to find the Brazilian equivalent. You get meanings, 8 real examples in different registers, collocations, synonyms, and the more academic and more informal options. Save anything to your cards in one click."),
+      h("div", { class: "row", style: "flex-wrap:nowrap" }, input, h("button", { class: "btn primary", type: "button", disabled: DIC.busy, onclick: () => lookup(input.value) }, DIC.busy ? [h("span", { class: "spinner" }), " Buscando…"] : "Buscar")),
+      S.lookups && S.lookups.length ? h("div", { class: "deckbar" }, h("span", { class: "small muted", style: "align-self:center" }, "Recentes:"), S.lookups.slice(0, 10).map((x) => chip(x))) : null,
+      local.length ? h("div", { style: "display:grid;gap:6px" }, h("h3", null, "Nos seus cartões"), h("div", { class: "list" }, local.map((c) => h("div", { class: "item" },
+        h("span", { class: "t" }, c.pt, " ", h("span", { class: "reg reg-" + c.reg }, c.reg)), h("span", { class: "d" }, c.en, c.esEq ? ` · ES: ${c.esEq}` : ""), h("span", { class: "side" }, h("span", { class: "tag" }, statusOf(c)), speakBtn(c.pt)))))) : null,
+    );
+    if (!r) return [search, DIC.busy ? h("section", { class: "panel" }, h("p", { class: "muted" }, h("span", { class: "spinner" }), " Procurando exemplos reais…")) : null];
+
+    const result = h("section", { class: "panel dict" },
+      h("div", { class: "row", style: "justify-content:space-between;align-items:flex-start" },
+        h("div", { style: "display:grid;gap:6px" }, h("div", { class: "row", style: "flex-wrap:nowrap" }, h("span", { class: "front", style: "font-family:var(--font-display);font-weight:800;font-size:2rem;line-height:1.1" }, r.pt), speakBtn(r.pt)),
+          h("div", { class: "row" }, h("span", { class: "reg reg-" + r.reg }, r.reg), r.classe ? h("span", { class: "tag" }, r.classe) : null)),
+        h("button", { class: "btn primary", type: "button", onclick: () => saveFromDict(r) }, "+ Salvar como cartão")),
+      r.sentidos.length ? h("ol", { class: "lesson-list" }, r.sentidos.map((s) => h("li", null, h("b", null, s.en), s.es ? h("span", { class: "muted" }, ` · ES: ${s.es}`) : null))) : null,
+      r.nota ? h("p", { class: "small" }, r.nota) : null,
+      r.cuidado ? h("p", { class: "es" }, h("b", null, "Cuidado: "), r.cuidado) : null,
+      h("h3", null, "Exemplos"),
+      h("div", { style: "display:grid;gap:8px" }, r.exemplos.map((ex) => h("div", { class: "example" },
+        h("div", { class: "row", style: "flex-wrap:nowrap;justify-content:space-between;align-items:flex-start" }, h("span", { class: "pt" }, ex.pt), h("div", { class: "row", style: "flex-wrap:nowrap" }, speakBtn(ex.pt), h("button", { class: "btn sm ghost", type: "button", title: "Salvar com este exemplo", onclick: () => saveFromDict(r, ex) }, "+"))),
+        h("span", { class: "muted small" }, ex.en, ex.reg ? " · " : "", ex.reg ? h("span", { class: "reg reg-" + ex.reg }, ex.reg) : null)))),
+      r.colocacoes.length ? [h("h3", null, "Colocações"), h("div", { class: "deckbar" }, r.colocacoes.map((x) => chip(x)))] : null,
+      r.sinonimos.length ? [h("h3", null, "Sinônimos"), h("div", { class: "deckbar" }, r.sinonimos.map((x) => chip(x.pt, x.reg)))] : null,
+      r.mais_formal.length || r.mais_informal.length ? h("div", { class: "grid-2" },
+        r.mais_formal.length ? h("div", { style: "display:grid;gap:8px" }, h("h3", null, "Mais formal / acadêmico"), h("div", { class: "deckbar" }, r.mais_formal.map((x) => chip(x)))) : null,
+        r.mais_informal.length ? h("div", { style: "display:grid;gap:8px" }, h("h3", null, "Mais informal"), h("div", { class: "deckbar" }, r.mais_informal.map((x) => chip(x)))) : null) : null,
+    );
+    return [search, result];
+  }
+
   /* ================================================================ TUTOR */
   let tutorTab = "escrever";
   const W = { task: D.writingTasks[0], text: "", busy: false, result: null };
@@ -750,6 +859,8 @@ Return ONLY JSON: {"items":[{"q":"…","a":["…"],"x":"…"}]}`;
     const erros = data.erros || [];
     return h("div", { style: "display:grid;gap:14px" },
       h("div", { class: "row", style: "align-items:flex-start;flex-wrap:nowrap" }, data.nivel ? h("span", { class: "level", title: "Nível estimado (CEFR)" }, data.nivel) : null, h("p", null, data.resumo || "")),
+      data.alvos && data.alvos.length ? h("div", { style: "display:grid;gap:6px" }, h("h3", null, `Desafio do dia: ${data.alvos.filter((a) => a.usado).length}/${data.alvos.length} alvos`),
+        data.alvos.map((a) => h("div", { class: "goal", style: "grid-template-columns:26px 1fr" }, h("span", { class: "check" + (a.usado ? " done" : ""), "aria-hidden": "true" }, a.usado ? "✓" : ""), h("div", null, h("b", null, a.pt), a.comentario ? h("p", { class: "small" }, a.comentario) : null)))) : null,
       data.boas && data.boas.length ? h("div", null, h("h3", null, "O que você fez bem"), h("ul", null, data.boas.map((b) => h("li", null, b)))) : null,
       h("h3", null, erros.length ? `Correções (${erros.length})` : "Nenhum erro encontrado. Muito bem!"),
       erros.map((e) => h("div", { class: "err" },
@@ -790,6 +901,39 @@ ${W.text.slice(0, 8000)}
     W.busy = false; route();
   }
 
+  const DEBATES = [
+    "O trabalho remoto deveria ser um direito de todos?",
+    "As redes sociais deveriam ser proibidas para menores de 16 anos?",
+    "Vale a pena morar no exterior?",
+    "A inteligência artificial vai acabar com mais empregos do que criar?",
+    "O transporte público deveria ser gratuito?",
+    "Aprender idiomas ainda faz sentido com tradutores automáticos?",
+    "As cidades deveriam proibir carros no centro?",
+    "Fazer faculdade ainda vale a pena?",
+    "Turismo de massa: mais benefícios ou mais problemas?",
+    "Deveríamos trabalhar quatro dias por semana?",
+  ];
+  function dailyChallenge() {
+    const k = dateStr();
+    if (S.challenge && S.challenge.date === k && S.challenge.targets.every((id) => BY_ID[id])) return S.challenge;
+    const seed = [...k].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7);
+    let r = seed; const rnd = () => { r = (r * 1103515245 + 12345) >>> 0; return r / 4294967296; };
+    const studied = CARDS.filter((c) => ["acad", "formal", "conect", "expr", "dar"].includes(c.deck) && S.srs[c.id]).sort((a, b) => (S.srs[b.id].last || 0) - (S.srs[a.id].last || 0)).slice(0, 25);
+    const pool = studied.length >= 4 ? studied : [...studied, ...CARDS.filter((c) => c.deck === "acad" && !studied.includes(c))];
+    const targets = []; const copy = [...pool];
+    while (targets.length < 4 && copy.length) targets.push(copy.splice(Math.floor(rnd() * Math.min(copy.length, 25)), 1)[0].id);
+    const tenses = D.drillTopics.filter((t) => t.group === "Tempos verbais");
+    const scored = tenses.map((t) => { const st = S.drillStats[t.id]; return { t, acc: st && st.n >= 5 ? st.ok / st.n : 0.5 + rnd() * 0.4 }; }).sort((a, b) => a.acc - b.acc);
+    S.challenge = { date: k, targets, tense: scored[0].t.id, topic: DEBATES[Math.floor(rnd() * DEBATES.length)] };
+    save();
+    return S.challenge;
+  }
+  function challengeScenario(ch) {
+    return { id: "desafio", reg: "formal", name: "Desafio do dia", challenge: ch,
+      role: `Lucas, a Brazilian friend from Porto Alegre who loves a good debate, discussing: "${ch.topic}". He takes a clear position (if possible the opposite of the learner's), argues with formal connectors and academic vocabulary, and keeps asking the learner to justify and develop their opinion.`,
+      opener: `Então, hoje eu quero ouvir a sua opinião sobre uma coisa: ${ch.topic} Eu tenho uma posição bem clara, mas fala você primeiro.` };
+  }
+
   function chatInstructions(sc) {
     return `You are role-playing in Brazilian Portuguese with a B2 learner who wants to reach C1.
 Character and situation: ${sc.role}
@@ -798,7 +942,9 @@ Rules:
 - Stay in character. Reply ONLY with your character's next message in Brazilian Portuguese: 1 to 4 sentences${sc.id === "whatsapp" ? ", written like real WhatsApp messages" : ""}.
 - Sound like a real Brazilian in this situation: use the colloquial forms and expressions the register allows, and now and then a C1-level word or idiom the learner may not know.
 - Do not correct the learner during the conversation; feedback comes at the end. If a message is unclear, react as a native would and ask.
-- Keep the conversation moving with a reaction or a question. Never switch to English.`;
+- Keep the conversation moving with a reaction or a question. Never switch to English.${sc.challenge ? `
+- The learner is practising these target expressions: ${sc.challenge.targets.map((id) => BY_ID[id] ? `"${BY_ID[id].pt}"` : "").filter(Boolean).join(", ")}, and this grammar point: ${topicName(sc.challenge.tense)}. Create natural chances for the learner to use them (ask questions that invite them), but do not use the target expressions yourself.` : ""}${S.chatCorrect ? `
+- After your in-character reply, if the learner's LAST message contains mistakes, add one final line that starts with "✏️ " followed by the corrected version of their message and a very short explanation in ${L()}. If it has no mistakes, do not add that line.` : ""}`;
   }
   async function sendChat(text) {
     if (!CH || CH.busy) return;
@@ -811,7 +957,7 @@ Rules:
     try {
       const reply = await AI.text(msgs, (t) => { pending.content = t; const last = VIEW.querySelector(".msg.ai.pending .txt"); if (last) last.textContent = t; });
       pending.content = String(reply || "").trim(); delete pending.pending;
-      if (S.autoSpeak) Voice.speak(pending.content);
+      if (S.autoSpeak) Voice.speak(pending.content.split("✏️")[0]);
     } catch (e) {
       CH.msgs.pop(); CH.msgs.pop(); toast(AI.explainError(e));
     }
@@ -823,22 +969,36 @@ Rules:
     const mine = CH.msgs.filter((m) => m.role === "user");
     if (mine.length < 2) { toast("Send at least two messages first."); return; }
     CH.feedbackBusy = true; route();
-    const transcript = [{ role: "assistant", content: CH.sc.opener }, ...CH.msgs].map((m) => `${m.role === "user" ? "LEARNER" : "PARTNER"}: ${m.content}`).join("\n");
+    const transcript = [{ role: "assistant", content: CH.sc.opener }, ...CH.msgs].map((m) => `${m.role === "user" ? "LEARNER" : "PARTNER"}: ${m.role === "user" ? m.content : String(m.content).split("✏️")[0].trim()}`).join("\n");
     const prompt = `You are an expert teacher of Brazilian Portuguese. Below is a role-play (${CH.sc.name}, register: ${CH.sc.reg}) between a B2 learner aiming for C1 and a native partner.
 Evaluate ONLY the LEARNER's lines. Brazilian norms. Spoken forms that fit the register (tô, pra, a gente, me passa) are NOT errors; using an inappropriate register IS (tipo "registro"). Mark Spanish interference.
 Return ONLY JSON:
 {"nivel":"B1|B2|B2+|C1|C2","resumo":"2–3 sentences in ${L()}","boas":["2–3 things the learner did well, in ${L()}"],"erros":[{"original":"exact fragment from a learner line","correcao":"natural corrected fragment","tipo":"one of: ${ERROR_TYPES}","explicacao":"short, in ${L()}"}],"expressoes":[{"pt":"expression a native would have used here","en":"meaning in English","porque":"when to use it, in ${L()}"}]}
-Max 12 erros, 4–6 expressoes.
+Max 12 erros, 4–6 expressoes.${CH.sc.challenge ? `
+Also add "alvos": [{"pt":"target","usado":true|false,"comentario":"short, in ${L()}"}] for each of these targets: ${CH.sc.challenge.targets.map((id) => BY_ID[id] ? `"${BY_ID[id].pt}"` : "").filter(Boolean).join(", ")}, and the grammar point "${topicName(CH.sc.challenge.tense)}" (was it used correctly?).` : ""}
 Conversation:
 ${transcript.slice(0, 12000)}`;
     try {
       const data = await AI.json(prompt);
       CH.feedback = data;
+      if (CH.sc.challenge && S.challenge && S.challenge.date === CH.sc.challenge.date) S.challenge.done = true;
       const n = saveErrors(data.erros, "conversa: " + CH.sc.name);
       today().c++; save();
       if (n) toast(`${n} erros salvos em "Meus erros".`);
     } catch (e) { toast(AI.explainError(e)); }
     CH.feedbackBusy = false; route();
+  }
+
+  function challengeCard() {
+    const ch = dailyChallenge();
+    const done = (S.days[dateStr()] || {}).c > 0 && ch.done;
+    return h("div", { class: "challenge" },
+      h("div", { class: "row", style: "justify-content:space-between" }, h("h3", null, "Desafio do dia"), done ? h("span", { class: "chip" }, "Feito hoje ✓") : h("span", { class: "small muted" }, "Debate · formal")),
+      h("p", { class: "challenge-topic" }, ch.topic),
+      h("div", { class: "small" }, "Use estas expressões na conversa:"),
+      h("div", { class: "deckbar" }, ch.targets.map((id) => BY_ID[id] ? h("span", { class: "deckchip", title: BY_ID[id].en }, BY_ID[id].pt) : null)),
+      h("div", { class: "small" }, "E este ponto de gramática: ", h("b", null, topicName(ch.tense))),
+      h("div", { class: "row" }, h("button", { class: "btn primary", type: "button", onclick: () => { const sc = challengeScenario(ch); CH = { sc, msgs: [], busy: false, feedback: null, feedbackBusy: false }; route(); if (S.autoSpeak) Voice.speak(sc.opener); } }, "Começar o desafio")));
   }
 
   function viewTutor() {
@@ -867,8 +1027,11 @@ ${transcript.slice(0, 12000)}`;
 
     if (!CH) {
       return [tabs, notice, h("section", { class: "panel" },
-        h("div", { class: "panel-head" }, h("h2", null, "Conversar"), h("label", { class: "row", style: "font-weight:400;display:flex" }, h("input", { type: "checkbox", id: "auto-speak", checked: S.autoSpeak, onchange: (e) => { S.autoSpeak = e.target.checked; save(); } }), "Ler as respostas em voz alta")),
-        h("p", null, "Pick a situation. The tutor stays in character and does not interrupt to correct you. When you finish, you get a full correction and your mistakes go to “Meus erros”."),
+        h("div", { class: "panel-head" }, h("h2", null, "Conversar"), h("div", { class: "row" },
+          h("label", { class: "row", style: "font-weight:400;display:flex" }, h("input", { type: "checkbox", id: "auto-speak", checked: S.autoSpeak, onchange: (e) => { S.autoSpeak = e.target.checked; save(); } }), "Ler as respostas em voz alta"),
+          h("label", { class: "row", style: "font-weight:400;display:flex" }, h("input", { type: "checkbox", id: "chat-correct", checked: S.chatCorrect, onchange: (e) => { S.chatCorrect = e.target.checked; save(); } }), "Corrigir cada mensagem"))),
+        challengeCard(),
+        h("p", null, "Or pick a situation. By default the tutor stays in character and gives you a full correction at the end. Tick “Corrigir cada mensagem” to also get a quick fix after each of your messages. Your mistakes go to “Meus erros”."),
         h("div", { class: "scenarios" }, D.scenarios.map((sc) => h("button", { class: "topic", type: "button", onclick: () => { CH = { sc, msgs: [], busy: false, feedback: null, feedbackBusy: false }; route(); if (S.autoSpeak) Voice.speak(sc.opener); } },
           h("span", { class: "name" }, sc.name), h("span", null, h("span", { class: "reg reg-" + sc.reg }, sc.reg))))),
       )];
@@ -877,7 +1040,7 @@ ${transcript.slice(0, 12000)}`;
     const chat = h("div", { class: "chat", "aria-live": "polite" },
       [{ role: "assistant", content: CH.sc.opener }, ...CH.msgs].map((m) => m.role === "user"
         ? h("div", { class: "msg me" }, h("span", { class: "txt" }, m.content))
-        : h("div", { class: "msg ai" + (m.pending ? " pending" : "") }, h("span", { class: "txt" }, m.content), m.pending ? null : speakBtn(m.content))));
+        : (() => { const [main, fix] = String(m.content).split("✏️"); return h("div", { class: "msg ai" + (m.pending ? " pending" : "") }, h("span", { class: "txt" }, m.pending ? m.content : main.trim(), !m.pending && fix ? h("span", { class: "fixline" }, "✏️ " + fix.trim()) : null), m.pending ? null : speakBtn(main)); })()));
     const ta = h("textarea", { id: "chat-input", placeholder: "Sua resposta… (Enter envia, Shift+Enter quebra linha)", disabled: CH.busy || !!CH.feedback });
     ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); const v = ta.value; ta.value = ""; sendChat(v); } });
     setTimeout(() => { chat.scrollTop = chat.scrollHeight; }, 0);
@@ -885,6 +1048,7 @@ ${transcript.slice(0, 12000)}`;
       h("div", { class: "panel-head" }, h("h2", null, CH.sc.name), h("div", { class: "row" },
         !CH.feedback ? h("button", { class: "btn sm", type: "button", disabled: CH.feedbackBusy || CH.busy, onclick: endChat }, CH.feedbackBusy ? [h("span", { class: "spinner" }), " Analisando…"] : "Terminar e ver correções") : null,
         h("button", { class: "btn sm ghost", type: "button", onclick: () => { Voice.stop(); CH = null; route(); } }, CH.feedback ? "Nova conversa" : "Sair"))),
+      CH.sc.challenge ? h("div", { class: "deckbar" }, h("span", { class: "small muted", style: "align-self:center" }, "Alvos:"), CH.sc.challenge.targets.map((id) => BY_ID[id] ? h("span", { class: "deckchip", title: BY_ID[id].en }, BY_ID[id].pt) : null), h("span", { class: "tag" }, topicName(CH.sc.challenge.tense))) : null,
       chat,
       !CH.feedback ? h("div", { class: "composer" }, ta, micBtn(ta), h("button", { class: "btn primary", type: "button", disabled: CH.busy, onclick: () => { const v = ta.value; ta.value = ""; sendChat(v); } }, "Enviar")) : null,
     ), CH.feedback ? h("section", { class: "panel" }, h("h2", null, "Correções da conversa"), feedbackView(CH.feedback)) : null];

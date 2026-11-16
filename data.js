@@ -9,6 +9,7 @@
 (function () {
   const c = (pt, en, ex, exEn, reg, note) => ({ pt, en, ex, exEn, reg, note: note || "" });
   const f = (pt, en, es, ex, exEn, note) => ({ pt, en, es, ex, exEn, reg: "neutro", note: note || "" });
+  const a = (pt, en, esEq, ex, exEn, note) => ({ pt, en, esEq, ex, exEn, reg: "formal", note: note || "" });
 
   const decks = [
     {
@@ -288,6 +289,53 @@
         c("aliás", "by the way; actually, in fact", "Ela é ótima. Aliás, foi ela que me indicou.", "She's great. In fact, she's the one who recommended me.", "informal"),
         c("afinal", "after all; so (in the end)", "Afinal, você vem ou não?", "So, are you coming or not?", "informal"),
         c("inclusive", "even; including", "Todo mundo foi, inclusive o chefe.", "Everybody went, even the boss.", "neutro", "In Brazil 'inclusive' very often means 'even'."),
+      ],
+    },
+    {
+      id: "acad",
+      name: "Acadêmico & argumentação",
+      blurb: "The Portuguese for 'resaltar', 'hacer hincapié en', 'cabe destacar'. For essays, meetings and debates.",
+      cards: [
+        a("ressaltar", "to highlight, to stress", "resaltar", "Cabe ressaltar que os dados ainda são preliminares.", "It should be stressed that the data are still preliminary."),
+        a("frisar", "to emphasize, to underline", "recalcar, subrayar", "O professor frisou a importância de citar as fontes.", "The teacher underlined the importance of citing sources."),
+        a("dar ênfase a / enfatizar", "to put emphasis on", "hacer hincapié en", "O relatório dá ênfase à formação dos professores.", "The report puts emphasis on teacher training."),
+        a("destacar", "to point out, to highlight", "destacar", "Vale destacar que a medida é temporária.", "It's worth pointing out that the measure is temporary."),
+        a("evidenciar", "to show clearly, to make evident", "evidenciar, poner de manifiesto", "A pesquisa evidencia a desigualdade regional.", "The survey clearly shows regional inequality."),
+        a("apontar", "to indicate, to point out", "señalar", "O estudo aponta que o consumo caiu 5%.", "The study indicates that consumption fell 5%."),
+        a("assinalar", "to note, to point out", "señalar", "É preciso assinalar duas exceções.", "Two exceptions must be noted."),
+        a("depreender-se", "to be inferred, to follow (from)", "desprenderse", "Depreende-se do texto que o autor é contra a reforma.", "It follows from the text that the author opposes the reform."),
+        a("ponderar", "to weigh up; to argue carefully", "ponderar", "Ela ponderou que talvez fosse cedo demais para decidir.", "She argued that it might be too early to decide."),
+        a("suscitar", "to give rise to (debate, doubts)", "suscitar", "A proposta suscitou um debate acalorado.", "The proposal sparked a heated debate."),
+        a("desencadear", "to trigger, to set off", "desencadenar", "A alta dos juros desencadeou uma crise.", "The rise in interest rates triggered a crisis."),
+        a("culminar em", "to culminate in", "culminar en", "Os protestos culminaram na renúncia do ministro.", "The protests culminated in the minister's resignation."),
+        a("decorrer de", "to result from", "derivarse de", "Os atrasos decorrem da falta de planejamento.", "The delays result from poor planning.", "'No decorrer de' = over the course of."),
+        a("advir de", "to come from, to stem from", "provenir de", "Os lucros advêm sobretudo das exportações.", "Profits come mainly from exports."),
+        a("pautar-se em / por", "to be guided by, to be based on", "regirse por, basarse en", "A decisão pautou-se em critérios técnicos.", "The decision was based on technical criteria.", "'Pauta' = agenda (pauta da reunião)."),
+        a("vir à tona", "to come to light", "salir a la luz", "O escândalo veio à tona em março.", "The scandal came to light in March."),
+        a("pôr em xeque", "to call into question", "poner en entredicho / en jaque", "Os novos dados põem em xeque a teoria.", "The new data call the theory into question."),
+        a("levar em conta / em consideração", "to take into account", "tener en cuenta", "É preciso levar em conta o custo de vida.", "The cost of living must be taken into account."),
+        a("no âmbito de", "within the scope / framework of", "en el ámbito de", "O tema foi discutido no âmbito do Mercosul.", "The issue was discussed within Mercosur."),
+        a("em virtude de", "owing to, by virtue of", "en virtud de", "O voo foi cancelado em virtude do mau tempo.", "The flight was cancelled owing to bad weather."),
+        a("tendo em vista", "considering, in view of", "teniendo en cuenta, en vista de", "Tendo em vista os resultados, vamos mudar a estratégia.", "In view of the results, we'll change the strategy."),
+        a("sob a ótica de", "from the perspective of", "desde la óptica de", "Sob a ótica econômica, a medida faz sentido.", "From an economic perspective, the measure makes sense."),
+        a("em consonância com", "in line with", "en consonancia con", "A política está em consonância com as metas da ONU.", "The policy is in line with the UN goals."),
+        a("acerca de", "about, concerning", "acerca de", "Há muitas dúvidas acerca do novo sistema.", "There are many doubts about the new system.", "Don't confuse with 'a cerca de' (about, approximately: 'a cerca de 10 km')."),
+        a("mediante", "by means of; upon", "mediante", "A inscrição é feita mediante pagamento da taxa.", "Registration is done upon payment of the fee."),
+        a("por meio de", "through, by means of", "por medio de", "Conseguimos o contato por meio de um amigo.", "We got the contact through a friend."),
+        a("diante do exposto", "in view of the above", "en vista de lo expuesto", "Diante do exposto, recomendamos a aprovação do projeto.", "In view of the above, we recommend approving the project."),
+        a("isto posto", "that being said, therefore", "dicho esto, por lo tanto", "Isto posto, passemos à votação.", "That said, let's move on to the vote."),
+        a("é inegável que", "it's undeniable that", "es innegable que", "É inegável que a tecnologia mudou o trabalho.", "It's undeniable that technology has changed work."),
+        a("sem sombra de dúvida", "without a shadow of a doubt", "sin lugar a dudas", "Foi, sem sombra de dúvida, o melhor ano da empresa.", "It was, without a doubt, the company's best year."),
+        a("convém", "it is advisable, it's worth", "conviene", "Convém lembrar que o prazo é curto.", "It's worth remembering that the deadline is short."),
+        a("cabe a alguém", "it's up to someone", "corresponde a, le toca a", "Cabe ao governo garantir a segurança.", "It's up to the government to guarantee security."),
+        a("abordar", "to address, to tackle (a topic)", "abordar", "O artigo aborda o impacto da inteligência artificial.", "The article addresses the impact of AI."),
+        a("problematizar", "to question critically", "problematizar", "A autora problematiza a ideia de meritocracia.", "The author critically questions the idea of meritocracy."),
+        a("contrapor", "to counter, to contrast", "contraponer", "É importante contrapor os dois argumentos.", "It's important to contrast both arguments."),
+        a("em última análise", "ultimately, in the final analysis", "en última instancia", "Em última análise, a responsabilidade é do gestor.", "Ultimately, the responsibility lies with the manager."),
+        a("de antemão", "beforehand, in advance", "de antemano", "Agradeço de antemão a atenção.", "Thank you in advance for your attention."),
+        a("à guisa de", "by way of", "a modo de", "À guisa de conclusão, retomo os pontos principais.", "By way of conclusion, I'll go back over the main points."),
+        a("salta aos olhos", "it's striking, it jumps out", "salta a la vista", "Salta aos olhos a diferença entre as duas regiões.", "The difference between the two regions is striking."),
+        a("endossar", "to endorse, to back", "respaldar, avalar", "Vários especialistas endossaram a proposta.", "Several experts endorsed the proposal."),
       ],
     },
     {
