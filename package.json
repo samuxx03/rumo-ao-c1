@@ -1,0 +1,11 @@
+{
+  "name": "rumo-ao-c1",
+  "private": true,
+  "description": "Brazilian Portuguese B2 → C1 trainer. No build step: open index.html.",
+  "scripts": {
+    "test": "node tests/smoke.js && node tests/restore.js"
+  },
+  "devDependencies": {
+    "jsdom": "^24.1.0"
+  }
+}
