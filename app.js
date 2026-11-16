@@ -64,7 +64,7 @@
   const dayNum = () => Math.max(1, Math.floor((startOfDay() - parseDate(S.start)) / DAY) + 1);
 
   const Store = {
-    key: "rumo-ao-c1:v1", ref: null, mode: "local", saving: false, dirty: false, timer: null,
+    key: "rumo-ao-c1:v1", ref: null, col: null, mode: "local", saving: false, dirty: false, timer: null, shards: [], SHARD: 250,
     loadLocal() { try { const raw = localStorage.getItem(this.key); return raw ? JSON.parse(raw) : null; } catch { return null; } },
     saveLocal() { try { localStorage.setItem(this.key, JSON.stringify(S)); } catch { /* storage unavailable */ } },
     async connect() {
@@ -76,11 +76,23 @@
       try { id = await user.id(); } catch { id = null; }
       if (!id) return;
       try {
-        this.ref = db.collection("data/users/" + id).doc("progress");
-        const snap = await Promise.race([this.ref.get(), new Promise((_, rej) => setTimeout(() => rej({ code: "timeout" }), 10000))]);
+        this.col = db.collection("data/users/" + id);
+        this.ref = this.col.doc("progress");
+        const timeout = (p) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej({ code: "timeout" }), 10000))]);
+        const snap = await timeout(this.ref.get());
         if (snap && snap.exists) {
           const remote = snap.data();
-          if (remote && (remote.updatedAt || 0) > (S.updatedAt || 0)) { S = { ...DEFAULT(), ...JSON.parse(JSON.stringify(remote)) }; buildCards(); this.saveLocal(); }
+          if (remote && (remote.updatedAt || 0) > (S.updatedAt || 0)) {
+            const next = { ...DEFAULT(), ...JSON.parse(JSON.stringify(remote)) };
+            const n = remote.customShards || 0;
+            if (n) {
+              const parts = await timeout(Promise.all(Array.from({ length: n }, (_, i) => this.col.doc("custom-" + i).get())));
+              next.custom = parts.flatMap((p) => (p && p.exists && Array.isArray(p.data().cards) ? JSON.parse(JSON.stringify(p.data().cards)) : []));
+              this.shards = parts.map((p) => (p && p.exists ? JSON.stringify({ cards: p.data().cards }) : ""));
+            }
+            delete next.customShards;
+            S = next; buildCards(); this.saveLocal();
+          }
           else if ((S.updatedAt || 0) > (remote?.updatedAt || 0)) { this.dirty = true; this.flush(); }
         } else if (S.updatedAt) { this.dirty = true; this.flush(); }
         this.mode = "cloud";
@@ -96,7 +108,18 @@
     async flush() {
       if (!this.ref || this.saving || !this.dirty) return;
       this.saving = true; this.dirty = false;
-      try { await this.ref.set(JSON.parse(JSON.stringify(S))); }
+      try {
+        const { custom, ...rest } = JSON.parse(JSON.stringify(S));
+        const n = Math.ceil((custom || []).length / this.SHARD);
+        for (let i = 0; i < n; i++) {
+          const body = { cards: custom.slice(i * this.SHARD, (i + 1) * this.SHARD) };
+          const js = JSON.stringify(body);
+          if (this.shards[i] !== js) { await this.col.doc("custom-" + i).set(body); this.shards[i] = js; }
+        }
+        for (let i = n; i < this.shards.length; i++) { if (this.shards[i]) await this.col.doc("custom-" + i).delete(); }
+        this.shards.length = n;
+        await this.ref.set({ ...rest, customShards: n });
+      }
       catch (e) {
         if (e && (e.code === "invalid_argument" || e.code === "revoked" || e.code === "not_granted")) { this.ref = null; this.mode = "local"; renderStatus(); }
         else if (e && e.code === "quota_exceeded") { toast("Cloud storage is full. Delete some custom cards or errors."); }
@@ -438,7 +461,7 @@
   function viewCards() {
     const tabs = h("div", { class: "row", style: "justify-content:space-between" },
       h("div", { class: "seg", role: "group", "aria-label": "Modo" },
-        [["revisar", "Revisar"], ["explorar", "Explorar"], ["importar", "Adicionar e importar"]].map(([id, label]) => h("button", { type: "button", "aria-pressed": cardsTab === id ? "true" : "false", onclick: () => { cardsTab = id; route(); } }, label))),
+        [["revisar", "Revisar"], ["explorar", "Explorar"], ["importar", "Adicionar e importar (Quizlet, Language Reactor)"]].map(([id, label]) => h("button", { type: "button", "aria-pressed": cardsTab === id ? "true" : "false", onclick: () => { cardsTab = id; route(); } }, label))),
       cardsTab === "revisar" ? h("div", { class: "seg", role: "group", "aria-label": "Direção" },
         [["pt", "PT → significado"], ["en", "Significado → PT"], ["mix", "Misto"]].map(([id, label]) => h("button", { type: "button", "aria-pressed": S.dir === id ? "true" : "false", onclick: () => { S.dir = id; save(); if (R.cur && !R.flipped) R.dir = id === "mix" ? R.dir : id; route(); } }, label))) : null,
     );
@@ -532,6 +555,82 @@ Keep it under 190 words.`;
     return panel;
   }
 
+
+  /* Quizlet import: Quizlet's Export gives "term<TAB>definition" per line */
+  const PT_HINT = /[ãõçâêôà]|\b(não|você|uma?|que|de|do|da|com|para|pra|é|está|tô|né|isso|esse|essa|muito|também|mas|eu|ele|ela|nós|eles|o|os|as|dar|fazer|ficar)\b/gi;
+  const EN_HINT = /\b(the|to|a|an|of|is|are|you|it|and|be|have|get|make|something|someone|with|for|in|on)\b/gi;
+  const ptScore = (t) => ((t.match(PT_HINT) || []).length * 2) - (t.match(EN_HINT) || []).length;
+  function parseQuizlet(text, side) {
+    const raw = String(text || "").replace(/\r\n?/g, "\n").trim();
+    if (!raw) return { pairs: [], sep: "" };
+    const lines = raw.split("\n").map((l) => l.trim()).filter(Boolean);
+    const seps = ["\t", " - ", " – ", ";", ","];
+    const sep = seps.find((sp) => lines.filter((l) => l.includes(sp)).length >= Math.max(1, lines.length * 0.6)) || "\t";
+    let pairs = lines.map((l) => { const i = l.indexOf(sep); return i < 0 ? null : [l.slice(0, i).trim(), l.slice(i + sep.length).trim()]; }).filter((p) => p && p[0] && p[1]);
+    let ptLeft = side === "left" ? true : side === "right" ? false : null;
+    if (ptLeft === null) {
+      const sample = pairs.slice(0, 80);
+      const l = sample.reduce((a, p) => a + ptScore(p[0]), 0), r = sample.reduce((a, p) => a + ptScore(p[1]), 0);
+      ptLeft = l >= r;
+    }
+    return { sep: sep === "\t" ? "Tab" : `"${sep.trim()}"`, ptLeft, pairs: pairs.map(([a, b]) => (ptLeft ? { pt: a, en: b } : { pt: b, en: a })) };
+  }
+  const QZ = { text: "", side: "auto", enrich: true, preview: null, busy: false, progress: "" };
+  async function importQuizlet() {
+    const list = QZ.preview.pairs.filter((p) => !BY_ID["meus:" + slug(p.pt)]);
+    if (!list.length) { toast("All these words are already in your cards."); return; }
+    let cards = list.map((p) => ({ ...p, reg: "neutro", src: "quizlet" }));
+    if (QZ.enrich && AI.available()) {
+      QZ.busy = true;
+      const out = [];
+      for (let i = 0; i < cards.length; i += 25) {
+        const chunk = cards.slice(i, i + 25);
+        QZ.progress = `Completando com IA: ${Math.min(i + 25, cards.length)}/${cards.length}…`; route();
+        const prompt = `These are flashcards (Brazilian Portuguese + meaning) from a learner's Quizlet list. The learner is B2 aiming for C1 and also speaks Spanish.
+For each item, in the SAME order, return the Portuguese exactly as given (only fix obvious spelling or accent mistakes), the meaning in English (keep the learner's meaning if correct), one natural example sentence in Brazilian Portuguese with an English translation, the register, and a short usage note in ${L()} (empty if nothing useful).
+Return ONLY JSON: {"cards":[{"pt":"…","en":"…","ex":"…","exEn":"…","reg":"gíria|informal|neutro|formal","note":"…"}]}
+Items:
+${chunk.map((c, k) => `${k + 1}. ${c.pt} = ${c.en}`).join("\n")}`;
+        try {
+          const data = await AI.json(prompt);
+          const got = Array.isArray(data) ? data : data.cards || [];
+          chunk.forEach((c, k) => { const g = got[k]; out.push(g && g.pt ? { ...c, ...g, pt: String(g.pt), en: String(g.en || c.en), src: "quizlet" } : c); });
+        } catch (e) { toast(AI.explainError(e) + " Importing the rest without examples."); out.push(...cards.slice(i)); break; }
+      }
+      cards = out; QZ.busy = false; QZ.progress = "";
+    }
+    let n = 0; for (const c of cards) if (addCustom(c)) n++;
+    QZ.preview = null; QZ.text = "";
+    toast(`${n} cartões do Quizlet adicionados a "Meus cartões".`); route();
+  }
+  function quizletPanel() {
+    const ta = h("textarea", { id: "quizlet-text", placeholder: "Cole aqui o texto exportado do Quizlet (um cartão por linha: termo TAB definição)", style: "min-height:140px" }, QZ.text);
+    ta.addEventListener("input", () => { QZ.text = ta.value; QZ.preview = null; });
+    const side = h("select", { id: "quizlet-side", "aria-label": "Qual lado está em português?" },
+      [["auto", "Detectar o lado em português"], ["left", "Português à esquerda (termo)"], ["right", "Português à direita (definição)"]].map(([v, l]) => h("option", { value: v, selected: QZ.side === v }, l)));
+    side.addEventListener("change", () => { QZ.side = side.value; if (QZ.preview) { QZ.preview = parseQuizlet(QZ.text, QZ.side); route(); } });
+    const enrich = h("input", { type: "checkbox", id: "quizlet-enrich", checked: QZ.enrich, onchange: (e) => { QZ.enrich = e.target.checked; } });
+    const pv = QZ.preview;
+    const dupes = pv ? pv.pairs.filter((p) => BY_ID["meus:" + slug(p.pt)]).length : 0;
+    return h("section", { class: "panel" },
+      h("div", { class: "panel-head" }, h("h2", null, "Importar do Quizlet"), h("span", { class: "small muted" }, "Suas listas antigas")),
+      h("ol", { class: "lesson-list small" },
+        h("li", null, "On quizlet.com (the website, not the phone app), open one of your sets."),
+        h("li", null, "Click the ⋯ (three dots) menu and choose ", h("b", null, "Export"), "."),
+        h("li", null, "Keep ", h("b", null, "Tab"), " between term and definition and ", h("b", null, "New line"), " between rows, then click ", h("b", null, "Copy text"), "."),
+        h("li", null, "Paste it here. Repeat for each set; duplicates are skipped.")),
+      ta,
+      h("div", { class: "row" }, side, h("label", { for: "quizlet-enrich", class: "row", style: "font-weight:400;display:flex" }, enrich, "Completar com IA (exemplo, registro, nota)"),
+        h("button", { class: "btn", type: "button", onclick: () => { QZ.preview = parseQuizlet(QZ.text, QZ.side); if (!QZ.preview.pairs.length) toast("No cards found. Check that each line is: term, Tab, definition."); route(); } }, "Pré-visualizar")),
+      pv && pv.pairs.length ? h("div", { style: "display:grid;gap:10px" },
+        h("p", { class: "small" }, `${pv.pairs.length} cartões encontrados (separador: ${pv.sep}). Português detectado à ${pv.ptLeft ? "esquerda" : "direita"}${dupes ? `. ${dupes} já existem e serão ignorados` : ""}.`),
+        h("div", { class: "list" }, pv.pairs.slice(0, 8).map((p) => h("div", { class: "item" }, h("span", { class: "t" }, p.pt), h("span", { class: "d" }, p.en)))),
+        pv.pairs.length > 8 ? h("p", { class: "small muted" }, `…e mais ${pv.pairs.length - 8}.`) : null,
+        h("div", { class: "row end" }, QZ.progress ? h("span", { class: "small muted" }, h("span", { class: "spinner" }), " ", QZ.progress) : null,
+          h("button", { class: "btn primary", type: "button", disabled: QZ.busy, onclick: importQuizlet }, `Importar ${pv.pairs.length - dupes} cartões`))) : null,
+    );
+  }
+
   let importText = "", importPreview = null, importBusy = false, importN = "20";
   function viewImport() {
     const ta = h("textarea", { id: "import-text", placeholder: "Cole aqui: export CSV do Language Reactor, legendas de um vídeo do YouTube, um artigo da Folha ou uma lista de palavras…" }, importText);
@@ -591,7 +690,7 @@ ${importText.slice(0, 18000)}
         const tsv = CARDS.map((c) => [c.pt, `${c.en}${c.ex ? "<br><i>" + c.ex + "</i>" : ""}${c.exEn ? "<br>" + c.exEn : ""}`, deckName(c.deck)].map((x) => String(x).replace(/[\t\n]/g, " ")).join("\t")).join("\n");
         navigator.clipboard.writeText(tsv).then(() => toast(`${CARDS.length} cartões copiados.`), () => toast("Copy was blocked by the browser."));
       } }, "Copiar todos os cartões")));
-    return [aiPanel, h("div", { class: "grid-2" }, manual, anki)];
+    return [quizletPanel(), aiPanel, h("div", { class: "grid-2" }, manual, anki)];
   }
 
   /* ================================================================ GRAMÁTICA */
