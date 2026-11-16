@@ -57,10 +57,10 @@
   /* ---------------------------------------------------------------- state */
   const DEFAULT = () => ({
     v: 1, updatedAt: 0, start: dateStr(), newPerDay: 15, lang: "en", dir: "pt", autoSpeak: true,
-    decksOff: [], srs: {}, custom: [], drillStats: {}, aiDrills: {}, days: {}, errors: [], lookups: [], dict: {}, chatCorrect: false, challenge: null,
+    decksOff: [], srs: {}, custom: [], drillStats: {}, aiDrills: {}, days: {}, errors: [], lookups: [], dict: {}, chatCorrect: false, challenge: null, native: "English", texts: [], listen: { n: 0, score: 0 },
   });
   let S = DEFAULT();
-  const today = () => { const k = dateStr(); return S.days[k] || (S.days[k] = { r: 0, n: 0, d: 0, dk: 0, t: 0, c: 0 }); };
+  const today = () => { const k = dateStr(); const d = S.days[k] || (S.days[k] = { r: 0, n: 0, d: 0, dk: 0, t: 0, c: 0, l: 0 }); if (d.l == null) d.l = 0; return d; };
   const dayNum = () => Math.max(1, Math.floor((startOfDay() - parseDate(S.start)) / DAY) + 1);
 
   const Store = {
@@ -90,7 +90,12 @@
               next.custom = parts.flatMap((p) => (p && p.exists && Array.isArray(p.data().cards) ? JSON.parse(JSON.stringify(p.data().cards)) : []));
               this.shards = parts.map((p) => (p && p.exists ? JSON.stringify({ cards: p.data().cards }) : ""));
             }
-            delete next.customShards;
+            if (remote.hasTexts) {
+              const td = await timeout(this.col.doc("texts").get());
+              next.texts = td && td.exists && Array.isArray(td.data().items) ? JSON.parse(JSON.stringify(td.data().items)) : [];
+              this.textsJs = JSON.stringify({ items: next.texts });
+            }
+            delete next.customShards; delete next.hasTexts;
             S = next; buildCards(); this.saveLocal();
           }
           else if ((S.updatedAt || 0) > (remote?.updatedAt || 0)) { this.dirty = true; this.flush(); }
@@ -109,7 +114,9 @@
       if (!this.ref || this.saving || !this.dirty) return;
       this.saving = true; this.dirty = false;
       try {
-        const { custom, ...rest } = JSON.parse(JSON.stringify(S));
+        const { custom, texts, ...rest } = JSON.parse(JSON.stringify(S));
+        const tjs = JSON.stringify({ items: texts || [] });
+        if (this.textsJs !== tjs) { await this.col.doc("texts").set({ items: texts || [] }); this.textsJs = tjs; }
         const n = Math.ceil((custom || []).length / this.SHARD);
         for (let i = 0; i < n; i++) {
           const body = { cards: custom.slice(i * this.SHARD, (i + 1) * this.SHARD) };
@@ -118,7 +125,7 @@
         }
         for (let i = n; i < this.shards.length; i++) { if (this.shards[i]) await this.col.doc("custom-" + i).delete(); }
         this.shards.length = n;
-        await this.ref.set({ ...rest, customShards: n });
+        await this.ref.set({ ...rest, customShards: n, hasTexts: true });
       }
       catch (e) {
         if (e && (e.code === "invalid_argument" || e.code === "revoked" || e.code === "not_granted")) { this.ref = null; this.mode = "local"; renderStatus(); }
@@ -257,39 +264,42 @@
     },
     available() { return !!this.tts || !!this.ptVoice; },
     refresh() { document.body.classList.toggle("no-voice", !this.available()); },
-    speak(text) {
+    speak(text, rate) {
       if (!text) return;
+      const r = rate ? clamp(rate, 0.7, 1.5) : undefined;
       if (this.tts) {
-        this.tts.speak(String(text).slice(0, 2000), { language: "pt-BR" }).catch((e) => {
+        this.tts.speak(String(text).slice(0, 2000), r ? { language: "pt-BR", rate: r } : { language: "pt-BR" }).catch((e) => {
           if (e && e.code === "not_granted") { this.tts = null; this.refresh(); }
-          if (e && e.code !== "busy" && this.ptVoice) this.speakLocal(text);
+          if (e && e.code !== "busy" && e.code !== "viewer_stopped" && this.ptVoice) this.speakLocal(text, rate);
         });
         return;
       }
-      this.speakLocal(text);
+      this.speakLocal(text, rate);
     },
-    speakLocal(text) {
+    speakLocal(text, rate) {
       if (!this.synth) return;
-      try { const u = new SpeechSynthesisUtterance(text); u.lang = "pt-BR"; if (this.ptVoice) u.voice = this.ptVoice; this.synth.cancel(); this.synth.speak(u); } catch { /* ignore */ }
+      try { const u = new SpeechSynthesisUtterance(text); u.lang = "pt-BR"; if (rate) u.rate = rate; if (this.ptVoice) u.voice = this.ptVoice; this.synth.cancel(); this.synth.speak(u); } catch { /* ignore */ }
     },
     stop() { try { this.tts && this.tts.stop(); } catch { /* */ } try { this.synth && this.synth.cancel(); } catch { /* */ } },
   };
   const speakBtn = (text, label = "Ouvir") => h("button", { class: "speak", type: "button", "aria-label": label, title: label, html: ICON.speak, onclick: (e) => { e.stopPropagation(); Voice.speak(text); } });
 
   const Mic = {
-    d: null, rec: null, target: null, btn: null, listening: false,
+    d: null, rec: null, target: null, btn: null, listening: false, finish: null,
+    available() { return !!this.d || !!this.rec; },
+    done() { const f = this.finish; this.finish = null; if (f) setTimeout(f, 250); },
     async init() {
       if (hasClaude()) { try { this.d = await window.claude.use("dictation"); } catch { this.d = null; } }
       if (this.d) {
         this.d.onFinal(({ text }) => this.append(text));
-        this.d.onState(({ state }) => this.setListening(state === "listening"));
+        this.d.onState(({ state }) => { this.setListening(state === "listening"); if (state !== "listening" && state !== "starting") this.done(); });
       } else {
         const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (SR) {
           try {
             this.rec = new SR(); this.rec.lang = "pt-BR"; this.rec.continuous = true; this.rec.interimResults = false;
             this.rec.onresult = (ev) => { for (let i = ev.resultIndex; i < ev.results.length; i++) if (ev.results[i].isFinal) this.append(ev.results[i][0].transcript); };
-            this.rec.onend = () => this.setListening(false);
+            this.rec.onend = () => { this.setListening(false); this.done(); };
             this.rec.onerror = () => this.setListening(false);
           } catch { this.rec = null; }
         }
@@ -303,7 +313,7 @@
     },
     setListening(on) { this.listening = on; if (this.btn) this.btn.setAttribute("aria-pressed", on ? "true" : "false"); },
     toggle(target, btn) {
-      if (this.listening) { if (this.d) this.d.stop().catch(() => {}); else if (this.rec) this.rec.stop(); this.setListening(false); return; }
+      if (this.listening) { if (this.d) this.d.stop().catch(() => {}).finally(() => this.done()); else if (this.rec) this.rec.stop(); this.setListening(false); return; }
       this.target = target; this.btn = btn;
       if (this.d) {
         this.d.start().catch((e) => { this.setListening(false); if (e && e.code === "not_granted") { toast("Microphone not allowed. You can keep typing."); this.d = null; document.body.classList.add("no-mic"); } });
@@ -319,7 +329,7 @@
 
   /* ---------------------------------------------------------------- routing */
   let currentView = "hoje";
-  const VIEWS = { hoje: viewToday, cartoes: viewCards, gramatica: viewDrills, dicionario: viewDict, tutor: viewTutor, erros: viewErrors };
+  const VIEWS = { hoje: viewToday, cartoes: viewCards, gramatica: viewDrills, dicionario: viewDict, ouvir: viewListen, tutor: viewTutor, erros: viewErrors };
   function route() {
     const name = (location.hash || "#hoje").slice(1);
     currentView = VIEWS[name] ? name : "hoje";
@@ -332,7 +342,7 @@
 
   function streak() {
     let n = 0; let t = startOfDay();
-    const active = (k) => { const d = S.days[k]; return d && d.r + d.d + d.t + d.c > 0; };
+    const active = (k) => { const d = S.days[k]; return d && d.r + d.d + d.t + d.c + (d.l || 0) > 0; };
     if (!active(dateStr(t))) t -= DAY;
     while (active(dateStr(t))) { n++; t -= DAY; }
     return n;
@@ -363,6 +373,7 @@
       { done: t.d >= 15, label: "15 exercícios de gramática", detail: `${t.d}/15`, view: "gramatica", p: pct(Math.min(t.d, 15), 15) },
       { done: t.t >= 1, label: "Escrever 1 texto e corrigir com a IA", detail: `${t.t}/1`, view: "tutor", p: t.t ? 100 : 0 },
       { done: t.c >= 1, label: "1 conversa (o Desafio do dia conta)", detail: `${t.c}/1`, view: "tutor", p: t.c ? 100 : 0 },
+      { done: (t.l || 0) >= 5, label: "5 frases de ditado ou shadowing", detail: `${t.l || 0}/5`, view: "ouvir", p: pct(Math.min(t.l || 0, 5), 5) },
     ];
     const next = goals.find((g) => !g.done);
 
@@ -414,7 +425,7 @@
     for (let i = 0; i < PROGRAM_DAYS; i++) {
       const t0 = startT + i * DAY + 3600000; // +1h guards against DST shifts
       const k = dateStr(t0); const d = S.days[k];
-      const score = d ? d.r + d.d * 2 + d.t * 10 + d.c * 10 : 0;
+      const score = d ? d.r + d.d * 2 + d.t * 10 + d.c * 10 + (d.l || 0) * 3 : 0;
       const lvl = score === 0 ? "" : score < 30 ? "l1" : score < 80 ? "l2" : "l3";
       const isToday = k === dateStr();
       cells.push(h("i", { class: [lvl, isToday ? "today" : "", startOfDay(t0) > startOfDay() ? "future" : ""].join(" ").trim(), title: `Dia ${i + 1} · ${k}${d ? ` · ${d.r} cartões, ${d.d} exercícios, ${d.t} textos, ${d.c} conversas` : ""}` }));
@@ -499,7 +510,7 @@
       c.es ? h("p", { class: "es" }, h("b", null, "Falso amigo em espanhol: "), c.es) : null,
       c.esEq ? h("p", { class: "es-eq" }, h("b", null, "Em espanhol: "), c.esEq) : null,
       R.explain ? h("div", { class: "ai-out" }, R.explain) : null,
-      h("div", { class: "row" }, h("button", { class: "btn sm ghost", type: "button", disabled: R.explaining, onclick: () => explainCard(c) }, R.explaining ? h("span", { class: "spinner" }) : null, R.explain ? "Explicar de novo" : "Mais exemplos e nuances (IA)")),
+      h("div", { class: "row" }, h("button", { class: "btn sm ghost", type: "button", disabled: R.explaining, onclick: () => explainCard(c) }, R.explaining ? h("span", { class: "spinner" }) : null, R.explain ? "Explicar de novo" : "Mais exemplos e nuances (IA)"), familyView(c.pt.split(" / ")[0], () => { if (currentView === "cartoes" && R.cur === c) route(); })),
     ) : null;
     const controls = R.flipped
       ? h("div", { class: "grades" }, [["De novo", 0], ["Difícil", 1], ["Bom", 2], ["Fácil", 3]].map(([label, g]) => h("button", { type: "button", class: "g" + g, onclick: () => grade(g) }, label, h("small", { class: "num" }, `${g + 1} · ${fmtIvl(schedule(s, g))}`))))
@@ -696,7 +707,7 @@ ${importText.slice(0, 18000)}
   /* ================================================================ GRAMÁTICA */
   const G = { topic: null, lesson: null, items: [], i: 0, input: "", result: null, picked: null, ok: 0, busy: false };
   const LESSONS = window.PT_LESSONS || {};
-  const topicName = (id) => id === "erros" ? "Meus erros" : id === "mix" ? "Treino misto" : (D.drillTopics.find((t) => t.id === id) || {}).name || id;
+  const topicName = (id) => id === "erros" ? "Meus erros" : id === "mix" ? "Treino misto" : id === "texto" ? "Exercícios do seu texto" : String(id).startsWith("erro:") ? "Seus erros de " + id.slice(5) : (D.drillTopics.find((t) => t.id === id) || {}).name || id;
 
   function itemsFor(topic) {
     if (topic === "erros") return shuffle(S.errors.filter((e) => (e.fixed || 0) < 2)).slice(0, 10).map((e) => ({ t: "erros", q: `Corrija: “${e.original}”`, a: [e.correcao], x: e.explicacao || "", errId: e.id }));
@@ -931,6 +942,7 @@ Rules: 1–3 sentidos. Exactly 8 exemplos from realistic Brazilian contexts (Wha
       h("div", { style: "display:grid;gap:8px" }, r.exemplos.map((ex) => h("div", { class: "example" },
         h("div", { class: "row", style: "flex-wrap:nowrap;justify-content:space-between;align-items:flex-start" }, h("span", { class: "pt" }, ex.pt), h("div", { class: "row", style: "flex-wrap:nowrap" }, speakBtn(ex.pt), h("button", { class: "btn sm ghost", type: "button", title: "Salvar com este exemplo", onclick: () => saveFromDict(r, ex) }, "+"))),
         h("span", { class: "muted small" }, ex.en, ex.reg ? " · " : "", ex.reg ? h("span", { class: "reg reg-" + ex.reg }, ex.reg) : null)))),
+      h("div", { class: "row" }, familyView(r.pt, () => { if (currentView === "dicionario") route(); })),
       r.colocacoes.length ? [h("h3", null, "Colocações"), h("div", { class: "deckbar" }, r.colocacoes.map((x) => chip(x)))] : null,
       r.sinonimos.length ? [h("h3", null, "Sinônimos"), h("div", { class: "deckbar" }, r.sinonimos.map((x) => chip(x.pt, x.reg)))] : null,
       r.mais_formal.length || r.mais_informal.length ? h("div", { class: "grid-2" },
@@ -938,6 +950,298 @@ Rules: 1–3 sentidos. Exactly 8 exemplos from realistic Brazilian contexts (Wha
         r.mais_informal.length ? h("div", { style: "display:grid;gap:8px" }, h("h3", null, "Mais informal"), h("div", { class: "deckbar" }, r.mais_informal.map((x) => chip(x)))) : null) : null,
     );
     return [search, result];
+  }
+
+
+  /* ================================================================ OUVIR & LER */
+  /* Word-by-word comparison (longest common subsequence). ok = right, acc = right except accents, miss = missing, extra = not in the original */
+  const wkey = (w) => deaccent(w).replace(/[^\p{L}\p{N}]/gu, "");
+  const wkeyAcc = (w) => norm(w).replace(/[^\p{L}\p{N}]/gu, "");
+  function wordDiff(target, attempt) {
+    const tw = String(target).split(/\s+/).filter((w) => wkey(w)), aw = String(attempt).split(/\s+/).filter((w) => wkey(w));
+    const n = tw.length, m = aw.length;
+    const dp = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+    for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) dp[i][j] = wkey(tw[i]) === wkey(aw[j]) ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    const parts = []; let i = 0, j = 0, ok = 0;
+    while (i < n && j < m) {
+      if (wkey(tw[i]) === wkey(aw[j])) { const a = wkeyAcc(tw[i]) === wkeyAcc(aw[j]); parts.push({ t: a ? "ok" : "acc", w: tw[i], typed: aw[j] }); ok += a ? 1 : 0.5; i++; j++; }
+      else if (dp[i + 1][j] >= dp[i][j + 1]) parts.push({ t: "miss", w: tw[i++] });
+      else parts.push({ t: "extra", w: aw[j++] });
+    }
+    while (i < n) parts.push({ t: "miss", w: tw[i++] });
+    while (j < m) parts.push({ t: "extra", w: aw[j++] });
+    return { parts, score: n ? Math.round((ok / n) * 100) : 0 };
+  }
+  const diffView = (r) => h("p", { class: "diff" }, r.parts.map((p) => [h("span", { class: "dw-" + p.t, title: p.t === "acc" ? `Você escreveu: ${p.typed}` : p.t === "miss" ? "Faltou" : p.t === "extra" ? "Não estava na frase" : "" }, p.w), " "]));
+  const splitSentences = (txt) => String(txt).replace(/\s+/g, " ").split(/(?<=[.!?…])\s+(?=[A-ZÁÉÍÓÚÂÊÔÃÕÇ"“(])/).map((x) => x.trim()).filter((x) => { const n = x.split(" ").length; return n >= 4 && n <= 28; });
+
+  let listenTab = "ditado";
+  const LS = { src: "cards", topic: "", sent: null, input: "", result: null, busy: false };
+  const SH = { sent: null, rate: 0.85, result: null, transcript: "", ta: null };
+  async function nextSentence(src) {
+    if (src === "texts") {
+      const all = (S.texts || []).flatMap((t) => splitSentences(t.body).map((pt) => ({ pt, en: "", from: t.title })));
+      if (all.length) return all[Math.floor(Math.random() * all.length)];
+      toast("No saved texts yet. Add one in the reader; using your cards instead.");
+    }
+    if (src === "ai") {
+      if (!AI.available()) { toast(AI.explainError({ code: "no_ai" })); }
+      else {
+        const prompt = `Write ONE natural Brazilian Portuguese sentence of 10 to 20 words for a dictation exercise, C1 level, ${LS.topic ? `about "${LS.topic.slice(0, 60)}", ` : ""}mixing everyday spoken expressions and at least one more advanced word or structure. Return ONLY JSON: {"pt":"…","en":"English translation"}`;
+        const r = await AI.json(prompt);
+        if (r && r.pt) return { pt: String(r.pt), en: String(r.en || "") };
+      }
+    }
+    const pool = CARDS.filter((c) => c.ex && deckOn(c));
+    const studied = pool.filter((c) => S.srs[c.id]);
+    const from = studied.length >= 10 ? studied : pool;
+    const c = from[Math.floor(Math.random() * from.length)];
+    return { pt: c.ex, en: c.exEn || "", card: c.pt };
+  }
+  function recordListen(score) {
+    const t = today(); t.l = (t.l || 0) + 1;
+    S.listen.n++; S.listen.score += score; save();
+  }
+
+  function viewDitado() {
+    const newBtn = h("button", { class: "btn primary", type: "button", disabled: LS.busy, onclick: async () => {
+      LS.busy = true; LS.result = null; LS.input = ""; route();
+      try { LS.sent = await nextSentence(LS.src); } catch (e) { toast(AI.explainError(e)); }
+      LS.busy = false; route(); if (LS.sent) Voice.speak(LS.sent.pt);
+    } }, LS.busy ? [h("span", { class: "spinner" }), " Preparando…"] : LS.sent ? "Nova frase" : "Começar");
+    const src = h("select", { id: "ditado-src", "aria-label": "De onde vêm as frases" }, [["cards", "Frases dos meus cartões"], ["texts", "Frases dos meus textos"], ["ai", "Frases novas da IA"]].map(([v, l]) => h("option", { value: v, selected: LS.src === v }, l)));
+    src.addEventListener("change", () => { LS.src = src.value; route(); });
+    const topic = LS.src === "ai" ? h("input", { type: "text", id: "ditado-topic", placeholder: "Tema (opcional): futebol, trabalho, política…", value: LS.topic }) : null;
+    if (topic) topic.addEventListener("input", () => { LS.topic = topic.value; });
+    const ta = h("textarea", { id: "ditado-input", placeholder: "Escreva o que você ouviu…", style: "min-height:80px", disabled: !!LS.result }, LS.input);
+    ta.addEventListener("input", () => { LS.input = ta.value; });
+    ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); check(); } });
+    const check = () => { if (!LS.input.trim()) return; LS.result = wordDiff(LS.sent.pt, LS.input); recordListen(LS.result.score); route(); };
+    if (LS.sent && !LS.result) setTimeout(() => ta.focus(), 0);
+    return h("section", { class: "panel" },
+      h("div", { class: "panel-head" }, h("h2", null, "Ditado"), h("span", { class: "small muted num" }, S.listen.n ? `Média: ${Math.round(S.listen.score / S.listen.n)}% · ${S.listen.n} frases` : "Ouça e escreva")),
+      h("p", { class: "small" }, "Listen to a sentence and type exactly what you hear. Then you see every word you missed, added or wrote without the right accent."),
+      h("div", { class: "row" }, src, topic, newBtn),
+      LS.sent ? [
+        h("div", { class: "row" }, h("button", { class: "btn", type: "button", onclick: () => Voice.speak(LS.sent.pt) }, h("span", { html: ICON.speak }), " Ouvir"), h("button", { class: "btn", type: "button", onclick: () => Voice.speak(LS.sent.pt, 0.7) }, h("span", { html: ICON.speak }), " Mais devagar")),
+        ta,
+        !LS.result ? h("div", { class: "row end" }, h("button", { class: "btn primary", type: "button", onclick: check }, "Conferir")) : null,
+        LS.result ? h("div", { class: "fb " + (LS.result.score >= 90 ? "ok" : LS.result.score >= 60 ? "warn" : "no") },
+          h("b", null, `${LS.result.score}% certo`), diffView(LS.result),
+          h("span", null, "Frase: ", h("strong", null, LS.sent.pt)), LS.sent.en ? h("span", { class: "small muted" }, LS.sent.en) : null,
+          h("span", { class: "small muted" }, "Verde: certo · amarelo: acento · sublinhado: faltou · riscado: a mais")) : null,
+      ] : null,
+    );
+  }
+
+  function viewShadow() {
+    const canMic = Mic.available();
+    const rate = h("input", { type: "range", id: "shadow-rate", min: "0.7", max: "1.1", step: "0.05", value: String(SH.rate), "aria-label": "Velocidade" });
+    const rateLbl = h("span", { class: "num small" }, SH.rate.toFixed(2) + "×");
+    rate.addEventListener("input", () => { SH.rate = Number(rate.value); rateLbl.textContent = SH.rate.toFixed(2) + "×"; });
+    const rec = h("button", { class: "btn mic", type: "button", "aria-pressed": "false", disabled: !SH.sent || !canMic }, h("span", { html: ICON.mic }), " Gravar minha voz");
+    rec.addEventListener("click", () => {
+      if (!Mic.listening) {
+        SH.ta = document.createElement("textarea"); SH.result = null;
+        Mic.finish = () => { SH.transcript = SH.ta ? SH.ta.value : ""; if (SH.transcript.trim()) { SH.result = wordDiff(SH.sent.pt, SH.transcript); recordListen(SH.result.score); } else toast("Nothing was heard. Try again a bit closer to the microphone."); route(); };
+      }
+      Mic.toggle(SH.ta, rec);
+    });
+    return h("section", { class: "panel" },
+      h("div", { class: "panel-head" }, h("h2", null, "Shadowing"), h("span", { class: "small muted" }, "Ouça, repita, compare")),
+      h("p", { class: "small" }, "Listen to the sentence, then record yourself saying it with the same rhythm and melody. The app compares what it understood with the original. Start slow and speed up."),
+      !canMic ? h("div", { class: "notice" }, "The microphone isn't available here. It works in Chrome or Edge, and in the Claude desktop app. You can still listen and repeat out loud.") : null,
+      h("div", { class: "row" }, h("button", { class: "btn primary", type: "button", onclick: async () => { SH.result = null; try { SH.sent = await nextSentence(LS.src === "texts" ? "texts" : "cards"); } catch { /* */ } route(); if (SH.sent) Voice.speak(SH.sent.pt, SH.rate); } }, SH.sent ? "Nova frase" : "Começar"),
+        h("label", { for: "shadow-rate", class: "row", style: "font-weight:400;display:flex" }, "Velocidade ", rate, rateLbl)),
+      SH.sent ? [
+        h("p", { class: "drill-q" }, SH.sent.pt), SH.sent.en ? h("p", { class: "small muted" }, SH.sent.en) : null,
+        h("div", { class: "row" }, h("button", { class: "btn", type: "button", onclick: () => Voice.speak(SH.sent.pt, SH.rate) }, h("span", { html: ICON.speak }), " Ouvir"), rec),
+        SH.result ? h("div", { class: "fb " + (SH.result.score >= 90 ? "ok" : SH.result.score >= 60 ? "warn" : "no") }, h("b", null, `${SH.result.score}% reconhecido`), h("span", { class: "small" }, "O app entendeu: ", h("i", null, SH.transcript)), diffView(SH.result), h("span", { class: "small muted" }, "Underlined words weren't recognized: say them again, more clearly.")) : null,
+      ] : null,
+    );
+  }
+
+  /* ---------- Reader ---------- */
+  const RD = { open: null, adding: false, form: { title: "", body: "", yt: "" }, pop: null, gen: false, mark: null };
+  const ytId = (u) => { const m = String(u || "").match(/(?:youtu\.be\/|v=|embed\/|shorts\/)([\w-]{11})/); return m ? m[1] : ""; };
+  async function readerLookup(phrase, sentence) {
+    phrase = phrase.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+    if (!phrase) return;
+    const local = CARDS.find((c) => deaccent(c.pt) === deaccent(phrase) || deaccent(c.pt).split(/[ /]+/).includes(deaccent(phrase)) && phrase.length > 3);
+    RD.pop = { phrase, sentence, local, busy: AI.available(), data: null };
+    route();
+    if (!AI.available()) return;
+    const key = norm(phrase + "|" + sentence);
+    S.ctxCache = S.ctxCache || {};
+    if (S.ctxCache[key]) { RD.pop.data = S.ctxCache[key]; RD.pop.busy = false; route(); return; }
+    const prompt = `A B2→C1 learner of Brazilian Portuguese is reading this sentence: "${sentence.slice(0, 400)}"
+They clicked on: "${phrase}".
+If the clicked word is part of a fixed expression, idiom or collocation in this sentence, explain the whole expression.
+Return ONLY JSON: {"pt":"the word or expression in dictionary form","traducao":"translation into ${S.native || "English"} as used in THIS sentence","definicao":"a short definition IN BRAZILIAN PORTUGUESE (monolingual, like a dictionary for natives)","reg":"gíria|informal|neutro|formal","es":"Spanish equivalent","frase_en":"translation of the whole sentence into ${S.native || "English"}","nota":"one short tip in ${L()}, or empty"}`;
+    try {
+      const r = await AI.json(prompt);
+      if (r && r.pt) { RD.pop.data = r; S.ctxCache[key] = r; const keys = Object.keys(S.ctxCache); if (keys.length > 40) delete S.ctxCache[keys[0]]; save(); }
+    } catch (e) { toast(AI.explainError(e)); }
+    if (RD.pop) RD.pop.busy = false; route();
+  }
+  function lookupPopup() {
+    const p = RD.pop; if (!p) return null;
+    const d = p.data;
+    const save1 = () => {
+      const card = d ? { pt: d.pt, en: d.traducao || p.phrase, ex: p.sentence, exEn: d.frase_en || "", reg: d.reg, esEq: d.es || "", note: [d.definicao, d.nota].filter(Boolean).join(" · "), src: "leitor" }
+                     : { pt: p.phrase, en: p.local ? p.local.en : "", ex: p.sentence, reg: "neutro", src: "leitor" };
+      if (!card.en) { toast("Wait for the translation first."); return; }
+      if (addCustom(card)) toast(`"${card.pt}" foi para Meus cartões, com a frase do texto.`); else toast("Already in your cards.");
+    };
+    return h("aside", { class: "lookup", role: "dialog", "aria-label": "Consulta" },
+      h("div", { class: "row", style: "justify-content:space-between;flex-wrap:nowrap" }, h("div", { class: "row", style: "flex-wrap:nowrap" }, h("b", { class: "lk-word" }, d ? d.pt : p.phrase), speakBtn(d ? d.pt : p.phrase), d && d.reg ? h("span", { class: "reg reg-" + d.reg }, d.reg) : null),
+        h("button", { class: "btn sm ghost", type: "button", "aria-label": "Fechar", onclick: () => { RD.pop = null; route(); } }, "✕")),
+      p.local && !d ? h("p", { class: "small" }, h("b", null, "Nos seus cartões: "), p.local.en) : null,
+      p.busy ? h("p", { class: "small muted" }, h("span", { class: "spinner" }), " Traduzindo no contexto…") : null,
+      d ? h("div", { class: "lk-grid" },
+        h("div", null, h("span", { class: "lk-n" }, "1"), h("b", null, "Tradução: "), d.traducao, d.es && S.native !== "Español" ? h("span", { class: "muted" }, ` · ES: ${d.es}`) : null),
+        h("div", null, h("span", { class: "lk-n" }, "2"), h("b", null, "Definição: "), d.definicao),
+        d.nota ? h("div", { class: "small muted" }, d.nota) : null) : null,
+      !AI.available() && !p.local ? h("p", { class: "small" }, AI.explainError({ code: "no_ai" })) : null,
+      h("div", { class: "row" }, h("button", { class: "btn primary sm", type: "button", onclick: save1 }, h("span", { class: "lk-n inv" }, "3"), " Adicionar aos cartões"),
+        h("button", { class: "btn sm", type: "button", onclick: () => { DIC.q = d ? d.pt : p.phrase; go("dicionario"); setTimeout(() => lookup(DIC.q), 0); } }, "Abrir no dicionário")));
+  }
+  function renderReadable(body) {
+    const wrap = h("div", { class: "reader-text", lang: "pt-BR" });
+    const paras = String(body).split(/\n\s*\n|\n/).map((x) => x.trim()).filter(Boolean);
+    let sid = 0; const sentences = [];
+    paras.forEach((para) => {
+      const pEl = h("p", null);
+      let cur = [];
+      const tokens = para.split(/(\s+)/);
+      tokens.forEach((tok) => {
+        if (!tok) return;
+        if (/^\s+$/.test(tok)) { pEl.append(" "); return; }
+        const isOn = RD.mark && RD.mark.s === sid && RD.mark.tok === tok;
+        const span = h("span", { class: /[\p{L}]/u.test(tok) ? (isOn ? "w on" : "w") : "", "data-s": String(sid) }, tok);
+        pEl.append(span); cur.push(tok);
+        if (/[.!?…]["”)]?$/.test(tok)) { sentences[sid] = cur.join(" "); cur = []; sid++; }
+      });
+      if (cur.length) { sentences[sid] = cur.join(" "); sid++; }
+      const pp = para;
+      wrap.append(h("div", { class: "rp" }, pEl, speakBtn(pp.slice(0, 1900), "Ouvir este parágrafo")));
+    });
+    const sentOf = (el) => sentences[Number((el.closest("[data-s]") || {}).dataset?.s)] || "";
+    wrap.addEventListener("mouseup", () => {
+      const sel = String(window.getSelection ? window.getSelection() : "").trim();
+      if (sel && sel.split(/\s+/).length > 1 && sel.split(/\s+/).length <= 8) {
+        const node = window.getSelection().anchorNode; const el = node && (node.nodeType === 1 ? node : node.parentElement);
+        readerLookup(sel, el ? sentOf(el) : sel);
+      }
+    });
+    wrap.addEventListener("click", (e) => {
+      const el = e.target.closest(".w"); if (!el) return;
+      const sel = String(window.getSelection ? window.getSelection() : "").trim();
+      if (sel && sel.split(/\s+/).length > 1) return;
+      RD.mark = { s: Number(el.dataset.s), tok: el.textContent };
+      readerLookup(el.textContent, sentOf(el));
+    });
+    return wrap;
+  }
+  async function textDrills(t) {
+    if (!AI.available()) { toast(AI.explainError({ code: "no_ai" })); return; }
+    RD.gen = true; route();
+    const prompt = `Create 8 fill-in-the-blank exercises from this Brazilian Portuguese text for a B2→C1 learner. Take real sentences (or slightly shortened ones) from the text and blank out ONE useful item each: verb forms (especially subjunctive and compound tenses), prepositions, connectors, idioms or collocations. Use "___" for the blank and a hint in parentheses (the infinitive, or the meaning in English). List every acceptable answer. Explanations in ${L()}, max 20 words.
+Return ONLY JSON: {"items":[{"q":"…","a":["…"],"x":"…"}]}
+Text:
+"""
+${String(t.body).slice(0, 7000)}
+"""`;
+    try {
+      const data = await AI.json(prompt);
+      const items = (data.items || []).filter((x) => x && typeof x.q === "string" && x.q.includes("___") && x.a && [].concat(x.a).length).map((x) => ({ t: "texto", q: x.q, a: [].concat(x.a).map(String), x: String(x.x || ""), ai: true }));
+      if (!items.length) throw { code: "bad_json" };
+      Object.assign(G, { topic: "texto", lesson: null, items, i: 0, input: "", result: null, picked: null, ok: 0, busy: false });
+      RD.gen = false; go("gramatica"); return;
+    } catch (e) { toast(AI.explainError(e)); }
+    RD.gen = false; route();
+  }
+  function viewReader() {
+    const t = (S.texts || []).find((x) => x.id === RD.open);
+    if (t) {
+      const yid = ytId(t.yt);
+      const words = t.body.split(/\s+/).length;
+      return [h("section", { class: "panel" },
+        h("div", { class: "panel-head" }, h("div", { style: "display:grid;gap:4px" }, h("span", { class: "small muted num" }, `${words} palavras · ${t.date}`), h("h2", null, t.title)),
+          h("div", { class: "row" }, h("button", { class: "btn sm", type: "button", disabled: RD.gen, onclick: () => textDrills(t) }, RD.gen ? [h("span", { class: "spinner" }), " Criando…"] : "Exercícios deste texto"), h("button", { class: "btn sm ghost", type: "button", onclick: () => { RD.open = null; RD.pop = null; Voice.stop(); route(); } }, "Voltar"))),
+        yid ? (hasClaude() ? h("p", null, h("a", { href: `https://www.youtube.com/watch?v=${yid}`, target: "_blank", rel: "noopener" }, "▶ Abrir o vídeo no YouTube"), h("span", { class: "small muted" }, " (videos can't play inside Claude; on the GitHub version they play here)"))
+          : h("div", { class: "yt" }, h("iframe", { src: `https://www.youtube.com/embed/${yid}`, title: "Vídeo do YouTube", allow: "encrypted-media; picture-in-picture", allowfullscreen: true, loading: "lazy" }))) : null,
+        h("p", { class: "small muted" }, "Click any word, or select a whole expression, to see its translation and definition and save it with this sentence."),
+        renderReadable(t.body),
+        t.src ? h("p", { class: "small muted" }, "Fonte: ", t.src) : null,
+      ), lookupPopup()];
+    }
+    const f = RD.form;
+    const title = h("input", { type: "text", id: "rd-title", placeholder: "Título", value: f.title }); title.addEventListener("input", () => { f.title = title.value; });
+    const body = h("textarea", { id: "rd-body", placeholder: "Cole o texto em português: notícia, transcrição de vídeo, letra de música, capítulo de livro…", style: "min-height:180px" }, f.body); body.addEventListener("input", () => { f.body = body.value; });
+    const yt = h("input", { type: "text", id: "rd-yt", placeholder: "Link do YouTube (opcional)", value: f.yt }); yt.addEventListener("input", () => { f.yt = yt.value; });
+    return [h("section", { class: "panel" },
+      h("div", { class: "panel-head" }, h("h2", null, "Leitor"), h("span", { class: "small muted" }, "Leia, clique, aprenda")),
+      h("p", { class: "small" }, "Paste anything you want to read in Portuguese. Click a word (or select an expression) for: 1. the translation into your language, 2. a definition in Portuguese, 3. a button to add it to your cards with the real sentence as the example."),
+      h("label", { for: "rd-title" }, "Título", title), h("label", { for: "rd-body" }, "Texto", body), h("label", { for: "rd-yt" }, "Vídeo (opcional)", yt),
+      h("div", { class: "row end" }, h("button", { class: "btn primary", type: "button", onclick: () => {
+        if (f.body.trim().split(/\s+/).length < 5) { toast("Paste a longer text."); return; }
+        const item = { id: uid(), title: f.title.trim() || f.body.trim().split(/\s+/).slice(0, 6).join(" ") + "…", body: f.body.trim().slice(0, 20000), yt: f.yt.trim(), date: dateStr() };
+        S.texts = [item, ...(S.texts || [])].slice(0, 15); save();
+        RD.form = { title: "", body: "", yt: "" }; RD.open = item.id; route(); window.scrollTo(0, 0);
+      } }, "Salvar e ler"))),
+      (S.texts || []).length ? h("section", { class: "panel" }, h("h3", null, "Seus textos"), h("div", { class: "list" }, S.texts.map((x) => h("div", { class: "item" },
+        h("span", { class: "t" }, x.title), h("span", { class: "d num" }, `${x.body.split(/\s+/).length} palavras · ${x.date}${x.yt ? " · com vídeo" : ""}`),
+        h("span", { class: "side" }, h("button", { class: "btn sm primary", type: "button", onclick: () => { RD.open = x.id; RD.pop = null; route(); window.scrollTo(0, 0); } }, "Ler"), h("button", { class: "btn sm ghost", type: "button", onclick: () => { S.texts = S.texts.filter((y) => y.id !== x.id); save(); route(); } }, "Apagar")))))) : null];
+  }
+
+  function viewListen() {
+    const tabs = h("div", { class: "seg", role: "group", "aria-label": "Modo" },
+      [["ditado", "Ditado"], ["shadowing", "Shadowing"], ["leitor", "Leitor"]].map(([id, label]) => h("button", { type: "button", "aria-pressed": listenTab === id ? "true" : "false", onclick: () => { listenTab = id; RD.pop = null; Voice.stop(); route(); } }, label)));
+    if (listenTab === "ditado") return [tabs, viewDitado()];
+    if (listenTab === "shadowing") return [tabs, viewShadow()];
+    return [tabs, ...[].concat(viewReader())];
+  }
+
+  /* ---------- Word family (cards + dictionary) ---------- */
+  const FAM = {};
+  async function wordFamily(word, rerender) {
+    if (!AI.available()) { toast(AI.explainError({ code: "no_ai" })); return; }
+    const k = norm(word); FAM[k] = { busy: true, items: [] }; rerender();
+    const prompt = `Give the word family of the Brazilian Portuguese word or expression "${word}": 5 to 9 words built on the same root (verbs, nouns, adjectives, adverbs, opposites with des-/in-, diminutives or -ada forms if common). Skip rare or archaic words.
+Return ONLY JSON: {"familia":[{"pt":"…","classe":"verbo|substantivo|adjetivo|advérbio","en":"meaning in English","ex":"short natural Brazilian example"}]}`;
+    try { const r = await AI.json(prompt); FAM[k] = { busy: false, items: (r.familia || []).filter((x) => x && x.pt).slice(0, 10) }; }
+    catch (e) { delete FAM[k]; toast(AI.explainError(e)); }
+    rerender();
+  }
+  function familyView(word, rerender) {
+    const f = FAM[norm(word)];
+    const btn = h("button", { class: "btn sm ghost", type: "button", disabled: f && f.busy, onclick: () => wordFamily(word, rerender) }, f && f.busy ? [h("span", { class: "spinner" }), " Família…"] : "Família de palavras");
+    if (!f || f.busy || !f.items.length) return btn;
+    return h("div", { style: "display:grid;gap:6px;width:100%" }, h("b", { class: "small" }, "Família de palavras"),
+      h("div", { class: "list" }, f.items.map((x) => {
+        const add = h("button", { class: "btn sm", type: "button" }, "+");
+        add.addEventListener("click", () => { if (addCustom({ pt: x.pt, en: x.en, ex: x.ex || "", reg: "neutro", src: "família" })) { add.textContent = "✓"; add.disabled = true; } else toast("Already in your cards."); });
+        return h("div", { class: "item" }, h("span", { class: "t" }, x.pt, " ", h("span", { class: "tag" }, x.classe || "")), h("span", { class: "d" }, x.en, x.ex ? h("span", { style: "display:block;font-style:italic" }, x.ex) : null), h("span", { class: "side" }, add));
+      })));
+  }
+
+  /* ---------- Exercises aimed at one error type ---------- */
+  async function errorTypeDrills(tipo) {
+    if (!AI.available()) { toast(AI.explainError({ code: "no_ai" })); return; }
+    const ex = S.errors.filter((e) => (e.tipo || "outro") === tipo).slice(0, 8);
+    toast(`Criando exercícios de ${tipo}…`);
+    const prompt = `A B2→C1 learner of Brazilian Portuguese (who speaks Spanish) keeps making this type of mistake: "${tipo}". Their real mistakes:
+${ex.map((e) => `- "${e.original}" → "${e.correcao}"${e.explicacao ? ` (${e.explicacao})` : ""}`).join("\n")}
+Create 8 NEW fill-in-the-blank exercises that train exactly this pattern, in new everyday and formal contexts (not copies of the mistakes). One blank "___" per sentence, with a hint in parentheses. List every acceptable answer. Explanations in ${L()}, max 20 words.
+Return ONLY JSON: {"items":[{"q":"…","a":["…"],"x":"…"}]}`;
+    try {
+      const data = await AI.json(prompt);
+      const items = (data.items || []).filter((x) => x && typeof x.q === "string" && x.q.includes("___") && x.a && [].concat(x.a).length).map((x) => ({ t: "erro:" + tipo, q: x.q, a: [].concat(x.a).map(String), x: String(x.x || ""), ai: true }));
+      if (!items.length) throw { code: "bad_json" };
+      Object.assign(G, { topic: "erro:" + tipo, lesson: null, items, i: 0, input: "", result: null, picked: null, ok: 0, busy: false });
+      go("gramatica");
+    } catch (e) { toast(AI.explainError(e)); }
   }
 
   /* ================================================================ TUTOR */
@@ -1169,7 +1473,8 @@ ${transcript.slice(0, 12000)}`;
       h("section", { class: "panel" },
         h("div", { class: "panel-head" }, h("h2", null, "Meus erros"), h("span", { class: "small muted num" }, `${S.errors.length} salvos · ${pending} para praticar`)),
         h("p", { class: "small" }, "An error leaves the practice list after you fix it correctly twice."),
-        h("div", { style: "display:grid;gap:8px" }, sorted.map(([k, list]) => h("div", { style: "display:grid;grid-template-columns:minmax(120px,190px) 1fr auto;gap:10px;align-items:center" }, h("span", null, k), h("div", { class: "bar sun" }, h("i", { style: `width:${pct(list.length, sorted[0][1].length)}%` })), h("span", { class: "small num muted" }, String(list.length))))),
+        h("div", { style: "display:grid;gap:8px" }, sorted.map(([k, list]) => h("div", { style: "display:grid;grid-template-columns:minmax(120px,190px) 1fr auto auto;gap:10px;align-items:center" }, h("span", null, k), h("div", { class: "bar sun" }, h("i", { style: `width:${pct(list.length, sorted[0][1].length)}%` })), h("span", { class: "small num muted" }, String(list.length)), h("button", { class: "btn sm", type: "button", title: `8 exercícios novos sobre ${k}`, onclick: () => errorTypeDrills(k) }, "Treinar")))),
+        h("p", { class: "small muted" }, "“Treinar” creates 8 new exercises aimed at that type of mistake, based on your own errors."),
         h("div", { class: "row" }, h("button", { class: "btn primary", type: "button", disabled: !pending, onclick: () => { go("gramatica"); setTimeout(() => startDrill("erros"), 0); } }, "Praticar meus erros"))),
       h("section", { class: "panel" }, h("h3", null, "Todos os erros"),
         h("div", { style: "display:grid;gap:10px" }, S.errors.map((e) => h("div", { class: "err" },
@@ -1194,6 +1499,8 @@ ${transcript.slice(0, 12000)}`;
       start.addEventListener("change", () => { if (start.value) { S.start = start.value; save(); } });
       const lang = h("select", { id: "set-lang" }, h("option", { value: "en", selected: S.lang === "en" }, "English"), h("option", { value: "pt", selected: S.lang === "pt" }, "Português (simples)"));
       lang.addEventListener("change", () => { S.lang = lang.value; save(); });
+      const native = h("select", { id: "set-native" }, ["English", "Español", "Français", "Italiano", "Deutsch", "Polski", "Русский", "中文"].map((l) => h("option", { value: l, selected: S.native === l }, l)));
+      native.addEventListener("change", () => { S.native = native.value; S.ctxCache = {}; save(); });
       const key = h("input", { type: "password", id: "set-key", placeholder: "sk-ant-…", value: AI.key(), autocomplete: "off" });
       key.addEventListener("change", () => { try { if (key.value.trim()) localStorage.setItem("rumo-ao-c1:apikey", key.value.trim()); else localStorage.removeItem("rumo-ao-c1:apikey"); } catch { /* */ } document.body.classList.toggle("no-ai", !AI.available()); });
       const imp = h("textarea", { id: "set-import", placeholder: "Cole aqui um backup (JSON) para restaurar", style: "min-height:80px" });
@@ -1203,7 +1510,8 @@ ${transcript.slice(0, 12000)}`;
         h("div", { class: "form-grid" },
           h("label", { for: "set-new" }, "Cartões novos por dia", newPer),
           h("label", { for: "set-start" }, "Início do programa (60 dias)", start),
-          h("label", { for: "set-lang" }, "Idioma das explicações da IA", lang)),
+          h("label", { for: "set-lang" }, "Idioma das explicações da IA", lang),
+          h("label", { for: "set-native" }, "Sua língua nativa (traduções do leitor)", native)),
         !AI.sample ? h("label", { for: "set-key" }, "Anthropic API key ", h("span", { class: "muted small" }, "(GitHub version only; stored in this browser, sent only to api.anthropic.com)"), key) : h("p", { class: "small" }, "AI: connected through Claude."),
         h("div", { style: "display:grid;gap:8px" }, h("h3", null, "Backup"),
           h("div", { class: "row" },

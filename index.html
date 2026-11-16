@@ -243,6 +243,27 @@ div.topic { cursor: default; }
 .challenge-topic { font-family: var(--font-display); font-weight: 700; font-size: 1.25rem; text-wrap: balance; }
 .challenge .deckchip { background: var(--surface); cursor: help; }
 
+
+/* Listening & reader */
+.diff { line-height: 2; margin: 0; }
+.dw-ok { color: var(--good); font-weight: 700; }
+.dw-acc { background: var(--sun-soft); box-shadow: inset 0 -2px 0 var(--sun); border-radius: 4px; padding: 0 2px; }
+.dw-miss { color: var(--bad); text-decoration: underline wavy; text-underline-offset: 4px; font-weight: 700; }
+.dw-extra { color: var(--muted); text-decoration: line-through; }
+.reader-text { display: grid; gap: 14px; font-size: 1.12rem; line-height: 1.85; max-width: 72ch; }
+.reader-text .rp { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: start; }
+.reader-text p { margin: 0; }
+.reader-text .w { cursor: pointer; border-radius: 4px; }
+.reader-text .w:hover { background: var(--sun-soft); }
+.reader-text .w.on { background: var(--sun); color: #1a1400; }
+.lookup { position: sticky; bottom: 12px; background: var(--surface); border: 2px solid var(--ink); border-radius: 16px; padding: 14px 16px; display: grid; gap: 10px; box-shadow: var(--shadow); z-index: 10; }
+.lk-word { font-family: var(--font-display); font-size: 1.3rem; }
+.lk-grid { display: grid; gap: 6px; }
+.lk-n { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--ink); color: var(--bg); font-size: .75rem; font-weight: 700; margin-right: 6px; }
+.lk-n.inv { background: var(--accent-ink); color: var(--accent); margin-right: 0; }
+.yt { position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: 12px; overflow: hidden; background: #000; }
+.yt iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+
 /* Modal */
 .overlay { position: fixed; inset: 0; background: rgba(10, 18, 14, .5); display: grid; place-items: center; z-index: 50; padding: 16px; }
 .modal { background: var(--surface); border-radius: 18px; max-width: 560px; width: 100%; max-height: 90vh; overflow-y: auto; padding: 22px; display: grid; gap: 16px; box-shadow: var(--shadow); }
@@ -278,6 +299,7 @@ div.topic { cursor: default; }
     <a href="#cartoes" data-view="cartoes">Cartões</a>
     <a href="#gramatica" data-view="gramatica">Gramática</a>
     <a href="#dicionario" data-view="dicionario">Dicionário</a>
+    <a href="#ouvir" data-view="ouvir">Ouvir &amp; ler</a>
     <a href="#tutor" data-view="tutor">Tutor IA</a>
     <a href="#erros" data-view="erros">Meus erros</a>
   </nav>

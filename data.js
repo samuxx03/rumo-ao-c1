@@ -131,6 +131,17 @@
         c("relaxa", "relax, don't worry", "Relaxa, não foi nada.", "Relax, it was nothing.", "informal"),
         c("fazer um corre", "to hustle; to run errands", "Tenho que fazer um corre no banco.", "I have to run an errand at the bank.", "gíria"),
         c("sufoco", "tight spot, stressful situation", "Que sufoco! Quase perdi o voo.", "What a nightmare! I almost missed my flight.", "informal"),
+        c("cê", "you (spoken 'você')", "Cê vai na festa hoje?", "Are you going to the party tonight?", "gíria", "Only in speech or very casual texts. 'Cês' = vocês."),
+        c("num (= não)", "not (spoken reduction before a verb)", "Num sei, cara, num vi nada.", "I dunno, man, I didn't see anything.", "gíria", "Never in writing."),
+        c("ó", "look, listen (from 'olha')", "Ó, deixa eu te explicar uma coisa.", "Look, let me explain something to you.", "informal"),
+        c("da hora", "cool, awesome", "O show foi muito da hora!", "The show was really awesome!", "gíria", "São Paulo. Similar: massa (Nordeste), maneiro (Rio)."),
+        c("maneiro", "cool, nice", "Que tênis maneiro!", "What cool sneakers!", "gíria", "Typical of Rio."),
+        c("brabo / braba", "amazing, skilled; (also) angry", "Esse jogador é brabo demais. / Ela ficou braba comigo.", "This player is incredible. / She got mad at me.", "gíria"),
+        c("show (de bola)", "great, excellent", "A apresentação foi show de bola!", "The presentation was excellent!", "gíria"),
+        c("manjar (de)", "to know a lot about, to be good at", "Ele manja muito de computador.", "He really knows his stuff about computers.", "gíria", "'Manjei' = I got it."),
+        c("moleque", "kid, boy; (adj.) mischievous", "Os moleques tão jogando bola na rua.", "The kids are playing football in the street.", "informal"),
+        c("tô só o pó", "I'm exhausted", "Trabalhei doze horas hoje, tô só o pó.", "I worked twelve hours today, I'm wiped out.", "gíria"),
+        c("deixa eu…", "let me… (spoken)", "Deixa eu ver se entendi.", "Let me see if I understood.", "informal", "Formal writing: 'Deixe-me…' / 'Permita-me…'."),
       ],
     },
     {
@@ -400,6 +411,7 @@
     { id: "crase", group: "Gramática fina", name: "Crase (à / às)", tip: "a (preposition) + a (article) = à. Test: swap for a masculine word. 'Vou à praia' → 'vou ao clube'." },
     { id: "pronome", group: "Gramática fina", name: "Pronomes: fala × escrita", tip: "Brazilian speech: 'Me passa o sal', 'vi ela'. Formal writing: 'Passe-me', 'vi-a'." },
     { id: "formacao", group: "Construção de palavras", name: "Formação de palavras", tip: "Suffixes and prefixes: -ção, -mento, -dade, -eza, -vel, -ada, -inho, -ão, des-, in-, en-…-ecer." },
+    { id: "fala", group: "Fala real", name: "Como os brasileiros falam", tip: "Spoken reductions (cê, tá, num, pra), diminutives as tone, and choosing the right register for each situation." },
     { id: "registro", group: "Construção de palavras", name: "Informal → formal", tip: "Rewrite spoken Brazilian Portuguese in a neutral or formal register." },
   ];
 
@@ -554,6 +566,21 @@
     d("registro", "Ele deu um jeito no problema. → Ele ___ o problema.", ["resolveu", "solucionou"], "'Dar um jeito' = resolver."),
     d("registro", "Pega mal chegar atrasado. → É ___ chegar atrasado.", ["inadequado", "deselegante", "malvisto"], "'Pegar mal' = to be inappropriate / frowned upon."),
   ];
+
+  drills.push(
+    mc("fala", "Na fala rápida, \"Você vai?\" vira:", ["Cê vai?", "Vós ides?", "Vocé vai?"], 0, "'Cê' is the spoken reduction of 'você'. Never write it in a formal text."),
+    mc("fala", "Qual é a forma da norma padrão (escrita)?", ["Ele trouxe o livro pra mim ler.", "Ele trouxe o livro para eu ler."], 1, "Before an infinitive the subject is 'eu': 'para eu ler'. 'Pra mim ler' is very common in speech but marked as non-standard."),
+    d("fala", "\"Num sei.\" → ___ sei. (forma padrão)", "não", "'Num' is the spoken reduction of 'não' before a verb."),
+    mc("fala", "Você chega a uma entrevista de emprego. Qual cumprimento?", ["E aí, beleza?", "Bom dia, tudo bem?", "Fala, mano!"], 1, "Neutral-polite. The other two are for friends."),
+    mc("fala", "\"Só tem um probleminha…\" O falante está:", ["falando de um problema pequeno de tamanho", "suavizando um problema que pode ser sério", "falando de um problema de criança"], 1, "Diminutives often soften or downplay, not describe size."),
+    d("fala", "\"Bora?\" → ___ embora? (forma completa)", "vamos", "'Bora' comes from 'vamos embora'."),
+    mc("fala", "Em \"Ó, deixa eu te explicar\", o que é \"ó\"?", ["Uma exclamação de surpresa", "\"Olha\": chama a atenção do ouvinte", "Um artigo"], 1, "'Ó' = 'olha' (look/listen), a very common spoken filler."),
+    mc("fala", "Qual NÃO soa brasileiro?", ["Estou a fazer o jantar.", "Tô fazendo o jantar.", "Estou fazendo o jantar."], 0, "'Estar a + infinitivo' is European Portuguese. Brazil uses the gerund: 'estou fazendo'."),
+    mc("fala", "Fala natural no Brasil:", ["Deixa eu ver.", "Deixa-me ver."], 0, "'Deixa eu ver' is everyday Brazilian speech. In formal writing: 'Deixe-me ver' or 'Permita-me verificar'."),
+    mc("fala", "Seu amigo diz \"Foi mal!\". Ele está:", ["pedindo desculpas", "dizendo que algo deu errado", "reclamando de você"], 0, "'Foi mal' = my bad, sorry (informal)."),
+    d("fala", "\"Tô morto!\" (informal) → Estou muito ___. (neutro)", ["cansado", "cansada", "exausto", "exausta"], "'Tô morto' / 'tô só o pó' = I'm exhausted."),
+    mc("fala", "Qual sequência vai do mais formal ao mais informal?", ["compreendo → entendi → saquei", "saquei → entendi → compreendo", "entendi → compreendo → saquei"], 0, "Formal: compreendo. Neutral: entendi. Slang: saquei (from 'sacar')."),
+  );
 
   /* ------------------------------------------------------------------ */
   /* Tutor: writing tasks and conversation scenarios                     */

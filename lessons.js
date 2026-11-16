@@ -369,6 +369,48 @@
       tip: "When you don't know a Portuguese word, apply the ending map to the Spanish one and then check it in the dictionary tab.",
     },
 
+    fala: {
+      title: "Como os brasileiros falam",
+      intro: "Spoken Brazilian Portuguese shortens words, softens with diminutives and moves between registers all the time. At C1 you need to understand all of it, use it with friends, and keep it out of formal writing.",
+      blocks: [
+        { h: "Spoken reductions", table: { head: ["Forma completa", "Na fala", "Exemplo"], rows: [
+          ["você / vocês", "cê / cês", "Cê vai hoje?"],
+          ["estou, está, estava", "tô, tá, tava", "Tô chegando, tá?"],
+          ["para, para o, para a", "pra, pro, pra", "Vou pro centro."],
+          ["não (before a verb)", "num", "Num sei."],
+          ["vamos (embora)", "bora, vambora", "Bora!"],
+          ["olha", "ó", "Ó, presta atenção."],
+          ["deixe-me", "deixa eu", "Deixa eu ver."],
+          ["está bom", "tá bom, tá", "Tá bom, combinado."],
+        ] } },
+        { h: "Brazil vs. Portugal", p: "Brazil uses the gerund: \"estou fazendo\". \"Estou a fazer\" sounds Portuguese. Brazilians also use \"você\" where Portugal often uses \"tu\" (except in the South and parts of the Northeast, where you'll hear \"tu vai\")." },
+        { h: "Diminutives are about tone", table: { head: ["Palavra", "O que realmente quer dizer"], rows: [
+          ["rapidinho", "real quick: softens a request"],
+          ["um minutinho", "just a minute: polite"],
+          ["agorinha", "just now / right now: emphasis"],
+          ["cafezinho", "the coffee you offer a guest: hospitality"],
+          ["só um probleminha", "a problem the speaker is downplaying (it may be big!)"],
+        ] } },
+        { h: "The same idea in four registers", table: { head: ["Formal", "Neutro", "Informal", "Gíria"], rows: [
+          ["compreendo", "entendi", "saquei", "manjei"],
+          ["excelente", "muito bom", "legal, bacana", "massa, show, da hora, brabo"],
+          ["dinheiro", "dinheiro", "grana", "bufunfa"],
+          ["trabalho", "trabalho", "serviço", "trampo"],
+          ["estou exausto", "estou muito cansado", "tô morto", "tô só o pó"],
+          ["peço desculpas", "desculpa", "foi mal", "vacilei"],
+          ["criança", "criança", "menino, menina", "moleque"],
+        ] } },
+        { h: "\"Pra mim fazer\" vs. \"para eu fazer\"", p: "Before an infinitive, the subject is \"eu\": \"Ele trouxe o livro para eu ler.\" Many Brazilians say \"pra mim ler\" in speech, and you'll hear it everywhere, but in writing and in exams it counts as an error." },
+      ],
+      mistakes: [
+        ["Cê pode me mandar o relatório? (e-mail ao chefe)", "Você poderia me enviar o relatório?", "Spoken reductions don't belong in a work email."],
+        ["Ele trouxe para mim ler.", "Ele trouxe para eu ler.", "Subject of the infinitive → eu."],
+        ["Estou a estudar.", "Estou estudando.", "European structure."],
+        ["E aí, beleza? (entrevista de emprego)", "Bom dia, tudo bem?", "Wrong register."],
+      ],
+      tip: "Watch a Brazilian YouTuber and note every reduction you hear (cê, tô, num, pra) in the reader. Then do shadowing with those sentences.",
+    },
+
     registro: {
       title: "Informal → formal",
       intro: "C1 means switching register on purpose: chatting with friends in the morning, writing a formal email in the afternoon. This is also where academic vocabulary lives (the Portuguese for \"resaltar\" or \"hacer hincapié en\").",
